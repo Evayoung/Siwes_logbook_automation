@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.presentation.components.domain.auth import LoginPage
 from app.application.services.auth import AuthService
 from app.domain.models.user import UserRole
+from app.infrastructure.security.session import get_current_user
 
 
 def setup_auth_routes(app: FastHTML):
@@ -18,9 +19,25 @@ def setup_auth_routes(app: FastHTML):
         app: FastHTML application instance
     """
     
+    def _dashboard_path(role: UserRole) -> str:
+        """Resolve dashboard route for a user role."""
+        if role == UserRole.STUDENT:
+            return "/student/dashboard"
+        return "/supervisor/dashboard"
+
+    def _clear_invalid_session(request: Request) -> None:
+        """Clear malformed or stale session state."""
+        if hasattr(request, "session"):
+            request.session.clear()
+
     @app.get("/")
-    def index():
-        """Redirect to login page."""
+    def index(request: Request):
+        """Route root to dashboard when authenticated, otherwise login."""
+        db: Session = request.state.db
+        user = get_current_user(request, db)
+        if user:
+            return RedirectResponse(_dashboard_path(user.role), status_code=303)
+        _clear_invalid_session(request)
         return RedirectResponse("/login", status_code=303)
     
     
@@ -34,15 +51,34 @@ def setup_auth_routes(app: FastHTML):
         Returns:
             Login page HTML
         """
-        # Check if already logged in
+        if request.query_params.get("force") in {"1", "true", "yes"}:
+            _clear_invalid_session(request)
+            return LoginPage()
+
+        db: Session = request.state.db
+        user = get_current_user(request, db)
+        if user:
+            return RedirectResponse(_dashboard_path(user.role), status_code=303)
+
         if request.session.get("user_id"):
-            role = request.session.get("role")
-            if role == UserRole.STUDENT.value:
-                return RedirectResponse("/student/dashboard", status_code=303)
-            else:
-                return RedirectResponse("/supervisor/dashboard", status_code=303)
+            _clear_invalid_session(request)
         
         return LoginPage()
+
+    @app.get("/forgot-password")
+    def forgot_password_page():
+        """Temporary placeholder page for password reset flow."""
+        return LoginPage(error="Password reset is not enabled yet. Contact your administrator.")
+
+    @app.get("/unauthorized")
+    def unauthorized_page():
+        """Unauthorized access page."""
+        return Div(
+            H1("Unauthorized"),
+            P("You do not have permission to access this page."),
+            A("Back to Login", href="/login", cls="btn btn-primary"),
+            cls="container py-5"
+        )
     
     
     @app.post("/login")
@@ -75,15 +111,11 @@ def setup_auth_routes(app: FastHTML):
             request.session["role"] = result["user"].role.value
             request.session["email"] = result["user"].email
             
-            # Set session expiry based on remember_me
-            if remember_me:
-                request.session["expires_at"] = result["session"]["expires_at"]
+            # Always persist explicit session expiry.
+            request.session["expires_at"] = result["session"]["expires_at"]
             
             # Redirect based on role
-            if result["user"].role == UserRole.STUDENT:
-                return RedirectResponse("/student/dashboard", status_code=303)
-            else:
-                return RedirectResponse("/supervisor/dashboard", status_code=303)
+            return RedirectResponse(_dashboard_path(result["user"].role), status_code=303)
                 
         except ValueError as e:
             # Login failed - show error
@@ -103,5 +135,19 @@ def setup_auth_routes(app: FastHTML):
         """
         # Clear session
         request.session.clear()
-        
-        return RedirectResponse("/login", status_code=303)
+
+        return RedirectResponse(
+            "/login?force=1",
+            status_code=303,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
+    @app.get("/switch-account")
+    def switch_account(request: Request):
+        """Force clear session and return to login form."""
+        _clear_invalid_session(request)
+        return RedirectResponse("/login?force=1", status_code=303)

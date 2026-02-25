@@ -87,19 +87,8 @@ class PlacementRepository(BaseRepository[IndustrialPlacement]):
             >>> for p in placements:
             ...     print(f"{p.company_name}: {p.start_date} - {p.end_date}")
         """
-        query = self.db.query(IndustrialPlacement).filter(
-            IndustrialPlacement.student_id == student_id,
-            IndustrialPlacement.deleted_at.is_(None)
-        )
-        
-        if not include_inactive:
-            today = date.today()
-            query = query.filter(
-                IndustrialPlacement.start_date <= today,
-                IndustrialPlacement.end_date >= today
-            )
-        
-        return query.order_by(IndustrialPlacement.start_date.desc()).all()
+        placement = self.get_active_placement(student_id)
+        return [placement] if placement else []
     
     def get_placement_with_geofence(
         self,
@@ -121,8 +110,7 @@ class PlacementRepository(BaseRepository[IndustrialPlacement]):
         return self.db.query(IndustrialPlacement).options(
             joinedload(IndustrialPlacement.geofence)
         ).filter(
-            IndustrialPlacement.id == placement_id,
-            IndustrialPlacement.deleted_at.is_(None)
+            IndustrialPlacement.id == placement_id
         ).first()
     
     def get_placement_geofence(self, placement_id: str) -> Optional[Geofence]:
@@ -139,10 +127,12 @@ class PlacementRepository(BaseRepository[IndustrialPlacement]):
             >>> if geofence:
             ...     print(f"Center: {geofence.center_latitude}, {geofence.center_longitude}")
         """
-        return self.db.query(Geofence).filter(
-            Geofence.placement_id == placement_id,
-            Geofence.deleted_at.is_(None)
+        placement = self.db.query(IndustrialPlacement).options(
+            joinedload(IndustrialPlacement.geofence)
+        ).filter(
+            IndustrialPlacement.id == placement_id
         ).first()
+        return placement.geofence if placement else None
     
     def create_placement_with_geofence(
         self,
@@ -174,14 +164,15 @@ class PlacementRepository(BaseRepository[IndustrialPlacement]):
             ...     }
             ... )
         """
-        # Create placement
-        placement = self.create(placement_data)
-        
-        # Create geofence
-        geofence_data['placement_id'] = placement.id
+        # Create geofence first (placement references geofence_id)
         geofence = Geofence(**geofence_data)
         self.db.add(geofence)
         self.db.flush()
+
+        # Create placement and link geofence
+        placement_data = dict(placement_data)
+        placement_data["geofence_id"] = geofence.id
+        placement = self.create(placement_data)
         
         # Refresh to load relationship
         self.db.refresh(placement)

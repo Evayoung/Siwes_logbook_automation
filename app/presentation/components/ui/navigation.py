@@ -4,6 +4,47 @@ from fasthtml.common import *
 from faststrap import Icon
 
 
+def LogoutConfirmModal() -> FT:
+    """Shared logout confirmation modal."""
+    return Div(
+        Div(
+            Div(
+                Div(
+                    H5("Confirm Logout", cls="modal-title"),
+                    Button(type="button", cls="btn-close", data_bs_dismiss="modal", aria_label="Close"),
+                    cls="modal-header",
+                ),
+                Div(
+                    P("Are you sure you want to log out?", cls="mb-0"),
+                    cls="modal-body",
+                ),
+                Div(
+                    Button("Cancel", type="button", cls="btn btn-outline-secondary", data_bs_dismiss="modal"),
+                    Form(
+                        Button(
+                            Span(Span(cls="spinner-border spinner-border-sm me-2 d-none", id="logout-confirm-spinner"), "Logout"),
+                            type="submit",
+                            cls="btn btn-danger",
+                            id="logout-confirm-submit",
+                        ),
+                        action="/logout",
+                        method="post",
+                        cls="d-inline",
+                        id="logout-confirm-form",
+                    ),
+                    cls="modal-footer",
+                ),
+                cls="modal-content",
+            ),
+            cls="modal-dialog modal-dialog-centered",
+        ),
+        cls="modal fade",
+        id="logout-confirm-modal",
+        tabindex="-1",
+        aria_hidden="true",
+    )
+
+
 def StudentSidebarNav(active_page: str = "dashboard") -> FT:
     """Student sidebar navigation - responsive for all screen sizes.
     
@@ -58,25 +99,16 @@ def StudentSidebarNav(active_page: str = "dashboard") -> FT:
             cls="nav-items flex-grow-1"
         ),
         
-        # # Logout at bottom
-        # Div(
-        #     A(
-        #         Icon("box-arrow-right", cls="nav-item-icon"),
-        #         "Logout",
-        #         href="/logout",
-        #         cls="nav-item",
-        #         **{"data-bs-dismiss": "offcanvas"}
-        #     ),
-        #     cls="mt-auto"
-        # ),
-
         # Logout at bottom
         Div(
             A(
                 Icon("box-arrow-right", cls="nav-item-icon"),
                 "Logout",
-                href="/logout",
-                cls="nav-item"
+                href="#",
+                cls="nav-item",
+                role="button",
+                data_bs_toggle="modal",
+                data_bs_target="#logout-confirm-modal",
             ),
             cls="mt-auto"
         ),
@@ -87,7 +119,7 @@ def StudentSidebarNav(active_page: str = "dashboard") -> FT:
         # - d-lg-block: Always visible on desktop (≥992px)
         # - position-lg-fixed: Fixed position on desktop
         cls="sidebar d-flex flex-column offcanvas offcanvas-start d-lg-block position-lg-fixed",
-        style="width: 280px; min-height: 100vh; z-index: 1040;",
+        style="width: 280px; min-height: 95vh; z-index: 1040;",
         id="sidebar",
         tabindex="-1"
     )
@@ -105,6 +137,8 @@ def StudentBottomNav(active_page: str = "dashboard") -> FT:
     nav_items = [
         {"icon": "grid-fill", "label": "Dashboard", "href": "/student/dashboard", "key": "dashboard"},
         {"icon": "journal-text", "label": "Logbook", "href": "/student/logbook", "key": "logbook"},
+        {"icon": "chat-dots-fill", "label": "Chat & Calls", "href": "/student/communication", "key": "communication"},
+        {"icon": "person-fill", "label": "Profile", "href": "/student/profile", "key": "profile"},
     ]
     
     return Div(
@@ -189,14 +223,17 @@ def SupervisorSidebarNav(active_page: str = "dashboard") -> FT:
             A(
                 Icon("box-arrow-right", cls="nav-item-icon"),
                 "Logout",
-                href="/logout",
-                cls="nav-item"
+                href="#",
+                cls="nav-item",
+                role="button",
+                data_bs_toggle="modal",
+                data_bs_target="#logout-confirm-modal",
             ),
             cls="mt-auto"
         ),
         
         cls="sidebar d-flex flex-column offcanvas offcanvas-start d-lg-block position-lg-fixed",
-        style="width: 280px; min-height: 100vh; z-index: 1040;",
+        style="width: 280px; min-height: 95vh; z-index: 1040;",
         id="sidebar",
         tabindex="-1"
     )

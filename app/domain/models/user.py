@@ -189,9 +189,34 @@ class StudentProfile(Base, TimestampMixin):
         nullable=True,
         comment="Foreign key to industrial placement (nullable until assigned)"
     )
+    assigned_supervisor_id = Column(
+        String(36),
+        ForeignKey('users.id'),
+        nullable=True,
+        comment="Foreign key to university supervisor"
+    )
+    setting_location_service = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Whether student enables location service prompts in app UI",
+    )
+    setting_offline_mode = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether student enables offline-first behavior in app UI",
+    )
+    setting_notifications = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Whether student wants in-app notification prompts",
+    )
     
     # Relationships
     user = relationship("User", foreign_keys=[user_id], viewonly=True)
+    supervisor = relationship("User", foreign_keys=[assigned_supervisor_id])
     placement = relationship("IndustrialPlacement", back_populates="students")
 
 

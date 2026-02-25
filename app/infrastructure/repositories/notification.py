@@ -60,8 +60,7 @@ class NotificationRepository(BaseRepository[Notification]):
             ... )
         """
         query = self.db.query(Notification).filter(
-            Notification.user_id == user_id,
-            Notification.deleted_at.is_(None)
+            Notification.user_id == user_id
         )
         
         if unread_only:
@@ -95,8 +94,7 @@ class NotificationRepository(BaseRepository[Notification]):
         """
         return self.db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.type == notification_type,
-            Notification.deleted_at.is_(None)
+            Notification.type == notification_type
         ).order_by(Notification.created_at.desc()).limit(limit).all()
     
     def count_unread(self, user_id: str) -> int:
@@ -114,8 +112,7 @@ class NotificationRepository(BaseRepository[Notification]):
         """
         return self.db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.is_read == False,
-            Notification.deleted_at.is_(None)
+            Notification.is_read == False
         ).count()
     
     def mark_as_read(self, notification_ids: List[str]) -> int:
@@ -131,8 +128,7 @@ class NotificationRepository(BaseRepository[Notification]):
             >>> updated = repo.mark_as_read([notif1.id, notif2.id])
         """
         result = self.db.query(Notification).filter(
-            Notification.id.in_(notification_ids),
-            Notification.deleted_at.is_(None)
+            Notification.id.in_(notification_ids)
         ).update(
             {"is_read": True},
             synchronize_session=False
@@ -155,8 +151,7 @@ class NotificationRepository(BaseRepository[Notification]):
         """
         result = self.db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.is_read == False,
-            Notification.deleted_at.is_(None)
+            Notification.is_read == False
         ).update(
             {"is_read": True},
             synchronize_session=False
@@ -188,13 +183,12 @@ class NotificationRepository(BaseRepository[Notification]):
         
         notifications = self.db.query(Notification).filter(
             Notification.user_id == user_id,
-            Notification.created_at < cutoff_date,
-            Notification.deleted_at.is_(None)
+            Notification.created_at < cutoff_date
         ).all()
         
         count = 0
         for notification in notifications:
-            notification.soft_delete()
+            self.db.delete(notification)
             count += 1
         
         self.db.flush()

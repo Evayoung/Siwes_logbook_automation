@@ -1,0 +1,97 @@
+[
+    {
+        "full_name": "John Doe",
+        "email": "john.doe@student.university.edu.ng",
+        "matric_number": "U/19/CS/0045",
+        "password": "password123",
+        "department": "Computer Science",
+        "role": "student",
+        "is_active": true,
+        "supervisor_email": "ada.williams@university.edu.ng",
+        "placement": {
+            "company_name": "Tech Industries Ltd.",
+            "company_address": "15 Marina Road, Lagos",
+            "supervisor_name": "Engr. Tunde Bakare",
+            "supervisor_email": "tunde.bakare@techindustries.com",
+            "supervisor_phone": "08012345678",
+            "start_date": "2024-03-01",
+            "end_date": "2024-08-31"
+        }
+    },
+    {
+        "full_name": "Jane Smith",
+        "email": "jane.smith@student.university.edu.ng",
+        "matric_number": "U/19/CS/1102",
+        "password": "password123",
+        "department": "Computer Science",
+        "role": "student",
+        "is_active": true,
+        "supervisor_email": "ada.williams@university.edu.ng",
+        "placement": {
+            "company_name": "AgriTech Solutions",
+            "company_address": "45 Farm Road, Abeokuta",
+            "supervisor_name": "Mr. Segun Adebayo",
+            "supervisor_email": "segun@agritech.ng",
+            "supervisor_phone": "08098765432",
+            "start_date": "2024-03-01",
+            "end_date": "2024-08-31"
+        }
+    },
+    {
+        "full_name": "Michael Johnson",
+        "email": "mike.j@student.university.edu.ng",
+        "matric_number": "U/19/IT/0301",
+        "password": "password123",
+        "department": "Information Technology",
+        "role": "student",
+        "is_active": true,
+        "supervisor_email": "i.sani@university.edu.ng",
+        "placement": {
+            "company_name": "Oil & Gas Corp.",
+            "company_address": "Victoria Island, Lagos",
+            "supervisor_name": "Bar. Sarah Ojo",
+            "supervisor_email": "sarah.ojo@oilgas.com",
+            "supervisor_phone": "07055555555",
+            "start_date": "2024-03-01",
+            "end_date": "2024-08-31"
+        }
+    },
+    {
+        "full_name": "Amina Yusuf",
+        "email": "amina.y@student.university.edu.ng",
+        "matric_number": "U/19/SE/0088",
+        "password": "password123",
+        "department": "Software Engineering",
+        "role": "student",
+        "is_active": true,
+        "supervisor_email": "c.okeke@university.edu.ng",
+        "placement": {
+            "company_name": "FinTech Startup Hub",
+            "company_address": "Yaba, Lagos",
+            "supervisor_name": "Mr. Kalu Uche",
+            "supervisor_email": "kalu@fintech.ng",
+            "supervisor_phone": "08122223333",
+            "start_date": "2024-03-01",
+            "end_date": "2024-08-31"
+        }
+    },
+    {
+        "full_name": "David Okafor",
+        "email": "david.o@student.university.edu.ng",
+        "matric_number": "U/19/CS/0550",
+        "password": "password123",
+        "department": "Computer Science",
+        "role": "student",
+        "is_active": true,
+        "supervisor_email": "ada.williams@university.edu.ng",
+        "placement": {
+            "company_name": "CyberSec Global",
+            "company_address": "Wuse II, Abuja",
+            "supervisor_name": "Mrs. Folake Cole",
+            "supervisor_email": "folake@cybersec.com",
+            "supervisor_phone": "09011112222",
+            "start_date": "2024-03-01",
+            "end_date": "2024-08-31"
+        }
+    }
+]

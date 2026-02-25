@@ -1,57 +1,76 @@
 """Student Communication (Chat & Calls) components."""
 
 from fasthtml.common import *
-from faststrap import Card, Button, Icon, Row, Col, Badge, Input, InputGroup
+from faststrap import Card, Button, Icon, Input, ToggleGroup
+from faststrap.presets import LoadingButton, InfiniteScroll
+from urllib.parse import quote
 
 
-def ChatHeader(supervisor_name: str = "Dr. Ada Williams", department: str = "Computer Science") -> FT:
-    """Header for the chat interface with supervisor info and actions."""
-    return Card(
+def ChatHeader(supervisor: dict) -> FT:
+    """Header row for the chat interface with supervisor info and actions."""
+    name = supervisor.get("name", "Dr. Ada Williams")
+    dept = supervisor.get("department", "Computer Science")
+    status = supervisor.get("status", "Online")
+    sup_id = supervisor.get("id", "")
+    
+    # Generate initials
+    parts = name.split()
+    initials = "".join([p[0] for p in parts[:2]]) if parts else "SU"
+    
+    return Div(
         Div(
             # User Info
             Div(
                 # Avatar with status dot
                 Div(
                     Div(
-                        "AW",
+                        initials,
                         cls="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center fw-bold",
                         style="width: 48px; height: 48px; font-size: 1.2rem;"
                     ),
-                    # Online status indicator
                     Div(
-                        cls="position-absolute bg-success border border-white rounded-circle",
+                        cls=f"position-absolute {'bg-success' if status == 'Online' else 'bg-secondary'} border border-white rounded-circle",
                         style="width: 12px; height: 12px; bottom: 0; right: 0;"
                     ),
                     cls="position-relative me-3"
                 ),
                 Div(
-                    H5(supervisor_name, cls="mb-0 fw-bold"),
-                    Div(department, cls="text-muted small"),
-                    Div("Online", cls="text-success small fw-bold"),
+                    H6(name, cls="mb-0 fw-bold"),
+                    Div(dept, cls="text-muted small"),
+                    Div(status, cls=f"{'text-success' if status == 'Online' else 'text-muted'} small fw-semibold"),
                     cls="d-flex flex-column"
                 ),
                 cls="d-flex align-items-center"
             ),
-            
-            # Action Buttons
             Div(
-                Button(
+                LoadingButton(
                     Icon("telephone"),
+                    endpoint="/api/calls/create",
+                    method="post",
+                    target="body",
                     variant="light",
                     cls="rounded-circle me-2",
-                    style="width: 40px; height: 40px;"
+                    style="width: 40px; height: 40px;",
+                    title="Start Voice Call",
+                    disabled=not sup_id,
+                    hx_vals=f'{{"call_type":"voice","supervisor_id":"{sup_id}"}}'
                 ),
-                Button(
+                LoadingButton(
                     Icon("camera-video"),
+                    endpoint="/api/calls/create",
+                    method="post",
+                    target="body",
                     variant="primary",
                     cls="rounded-circle",
-                    style="width: 40px; height: 40px;"
+                    style="width: 40px; height: 40px;",
+                    title="Start Video Call",
+                    disabled=not sup_id,
+                    hx_vals=f'{{"call_type":"video","supervisor_id":"{sup_id}"}}'
                 ),
                 cls="d-flex"
             ),
-            cls="d-flex justify-content-between align-items-center p-3"
+            cls="d-flex justify-content-between align-items-center p-3 border-bottom"
         ),
-        cls="border-0 shadow-sm mb-3 white-color"
     )
 
 
@@ -84,30 +103,32 @@ def MessageBubble(text: str, time: str, is_me: bool) -> FT:
     )
 
 
-def ChatInput() -> FT:
+def ChatInput(recipient_id: str) -> FT:
     """Input area for sending messages."""
-    return Card(
+    return Form(
         Div(
-            Button(
-                Icon("paperclip"),
-                variant="link",
-                cls="text-muted me-2 px-2"
-            ),
+            Input(type="hidden", name="recipient_id", value=recipient_id),
             Input(
-                name="message_input",
+                name="content",
                 placeholder="Type a message...",
-                cls="border-0 bg-transparent flex-grow-1 shadow-none",
-                style="resize: none; height: 40px;"
+                cls="form-control border-0 bg-light mx-2",
+                style="height: 40px;",
+                autocomplete="off"
             ),
             Button(
                 Icon("send-fill"),
                 variant="primary",
-                cls="rounded-circle ms-2 d-flex align-items-center justify-content-center",
-                style="width: 40px; height: 40px;"
+                cls="rounded-circle text-white",
+                style="width: 40px; height: 40px;",
+                type="submit"
             ),
-            cls="d-flex align-items-center p-2 bg-light rounded-pill border"
+            cls="d-flex align-items-center bg-light p-2 rounded-pill border"
         ),
-        cls="mt-3 border-0 bg-transparent"
+        cls="p-3 border-top",
+        hx_post="/api/chat/send",
+        hx_target="#chat-messages-list",
+        hx_swap="beforeend",
+        **{"hx-on::after-request": "this.reset()"}
     )
 
 
@@ -137,94 +158,131 @@ def CallHistoryItem(call: dict) -> FT:
     )
 
 
-def CommunicationTabs(active_tab: str = "chat") -> FT:
-    """Communication filter tabs."""
-    return Div(
+def CommunicationTabs(active_tab: str = "chat", supervisor_id: str = "") -> FT:
+    """Communication view switcher via HTMX + ToggleGroup."""
+    chat_url = "/student/communication?tab=chat"
+    calls_url = "/student/communication?tab=calls"
+    if supervisor_id:
+        chat_url += f"&peer_id={supervisor_id}"
+        calls_url += f"&peer_id={supervisor_id}"
+
+    return ToggleGroup(
         Button(
-            "Chat", 
-            cls=f"me-2 {'bg-primary text-white' if active_tab == 'chat' else 'border bg-white text-dark'}",
-            hx_get="/student/communication?tab=chat",
-            hx_target="#communication-content",
-            hx_swap="innerHTML",
-            style="border-radius:8px;"
+            "Chat",
+            variant="light",
+            cls="comm-view-btn",
+            hx_get=chat_url,
+            hx_target="#student-communication-root",
+            hx_push_url="true",
         ),
         Button(
-            "Call History", 
-            cls=f"{'bg-primary text-white' if active_tab == 'calls' else 'border bg-white text-dark'}",
-            hx_get="/student/communication?tab=calls",
-            hx_target="#communication-content",
-            hx_swap="innerHTML",
-            style="border-radius:8px;"
+            "Call History",
+            variant="light",
+            cls="comm-view-btn",
+            hx_get=calls_url,
+            hx_target="#student-communication-root",
+            hx_push_url="true",
         ),
-        cls="mb-3 d-flex gap-2",
-        id="communication-tabs",
-        hx_swap_oob="true" if active_tab != "chat" else None
+        active_index=0 if active_tab == "chat" else 1,
+        cls="comm-view-toggle d-flex gap-4 mb-3 flex-wrap",
     )
 
 
-def CommunicationContent(active_tab: str = "chat") -> FT:
+def ChatHistoryLoader(recipient_id: str | None, oldest_message_at: str | None, has_more_messages: bool) -> FT:
+    """Top-of-list loader for older chat history pages."""
+    if not recipient_id:
+        return Div(id="chat-history-sentinel")
+
+    if has_more_messages and oldest_message_at:
+        before = quote(oldest_message_at, safe="")
+        return InfiniteScroll(
+            endpoint=f"/api/chat/history/{recipient_id}/older?before={before}&limit=20",
+            target="this",
+            trigger="intersect once root:#chat-messages-list threshold:0.01",
+            hx_swap="outerHTML",
+            id="chat-history-sentinel",
+            content=Div("Loading older messages...", cls="small text-muted text-center py-1"),
+        )
+
+    return Div("Start of conversation", id="chat-history-sentinel", cls="small text-muted text-center py-1")
+
+
+def CommunicationContent(
+    active_tab: str = "chat",
+    supervisor: dict | None = None,
+    messages: list | None = None,
+    recipient_id: str | None = None,
+    calls: list | None = None,
+    oldest_message_at: str | None = None,
+    has_more_messages: bool = False,
+) -> FT:
     """Communication content area (chat or call history)."""
+    supervisor = supervisor or {}
+    messages = messages or []
+    calls = calls or []
     if active_tab == "calls":
-        # Mock call history
-        calls = [
-            {"name": "Dr. Ada Williams", "type": "incoming", "duration": "15:32", "time": "2 hours ago"},
-            {"name": "Dr. Ada Williams", "type": "outgoing", "duration": "08:15", "time": "Yesterday"},
-            {"name": "Dr. Ada Williams", "type": "incoming", "duration": "22:45", "time": "2 days ago"},
-        ]
-        
         return Div(
             Card(
                 Div(
                     H5("Call History", cls="mb-3"),
                     *[CallHistoryItem(call) for call in calls],
-                    cls="p-3"
+                    cls="p-3",
                 ),
-                cls="white-color"
+                cls="white-color",
             ),
-            id="communication-content"
-        )
-    else:
-        # Chat view (default)
-        messages = [
-            {"text": "Good morning Dr. Williams. I have a question about the database design task.", "time": "10:15 AM", "is_me": True},
-            {"text": "Good morning John! Of course, what do you need help with?", "time": "10:18 AM", "is_me": False},
-            {"text": "I'm unsure about the normalization level we should target. Should I aim for 3NF or BCNF?", "time": "10:20 AM", "is_me": True},
-            {"text": "For this project, 3NF should be sufficient. Focus on eliminating transitive dependencies. Let me know if you need more clarification.", "time": "10:25 AM", "is_me": False},
-        ]
-        
-        return Div(
-            Card(
-                Div(
-                    *[
-                        MessageBubble(m["text"], m["time"], m["is_me"]) 
-                        for m in messages
-                    ],
-                    cls="chat-messages p-4"
-                ),
-                # Input Footer
-                Div(
-                    ChatInput(),
-                    cls="p-3 border-top"
-                ),
-                cls="mb-4 white-color"
-            ),
-            id="communication-content"
+            id="communication-content",
         )
 
-
-def CommunicationPage(active_tab: str = "chat") -> FT:
-    """Main Communication (Chat & Calls) page."""
-    
     return Div(
-        # 1. Supervisor Details (Header)
-        ChatHeader(),
+        Card(
+            ChatHeader(supervisor),
+            Div(
+                ChatHistoryLoader(recipient_id, oldest_message_at, has_more_messages),
+                *[
+                    MessageBubble(m["text"], m["time"], m["is_me"])
+                    for m in messages
+                ],
+                cls="flex-grow-1 p-3 overflow-auto",
+                style="height: 500px;",
+                id="chat-messages-list",
+            ),
+            ChatInput(recipient_id),
+            cls="mb-4 bg-white h-100",
+            id="student-chat-content",
+        ),
+        id="communication-content",
+    )
+
+
+def CommunicationPage(
+    active_tab: str = "chat",
+    supervisor: dict | None = None,
+    messages: list | None = None,
+    calls: list | None = None,
+    oldest_message_at: str | None = None,
+    has_more_messages: bool = False,
+) -> FT:
+    """Main Communication (Chat & Calls) page."""
+    if supervisor is None:
+        supervisor = {}
+    messages = messages or []
+    calls = calls or []
         
-        # 2. Filter Tabs
-        CommunicationTabs(active_tab),
+    return Div(
+        # 1. Filter Tabs
+        CommunicationTabs(active_tab, supervisor.get("id", "")),
         
-        # 3. Content Area (Chat or Call History)
-        CommunicationContent(active_tab),
+        # 2. Content Area (Chat or Call History)
+        CommunicationContent(
+            active_tab,
+            supervisor,
+            messages,
+            supervisor.get("id"),
+            calls,
+            oldest_message_at=oldest_message_at,
+            has_more_messages=has_more_messages,
+        ),
         
-        cls="h-100"
+        cls="communication-page pb-4"
     )
 

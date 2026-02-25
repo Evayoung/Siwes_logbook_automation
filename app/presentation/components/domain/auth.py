@@ -25,7 +25,8 @@ def LoginForm(error: str | None = None) -> FT:
             input_type="email",
             placeholder="student@university.edu",
             required=True,
-            autofocus=True
+            autofocus=True,
+            cls="w-100"
         ),
         
         # Password field
@@ -34,23 +35,26 @@ def LoginForm(error: str | None = None) -> FT:
             label="Password",
             input_type="password",
             placeholder="Enter your password",
-            required=True
+            required=True,
+            cls="w-100"
         ),
         
         # Remember me and Forgot password in same row
         Div(
             Checkbox("remember_me", label="Remember me"),
-            A("Forgot password?", href="/forgot-password", cls="text-decoration-none"),
-            cls="d-flex justify-content-between align-items-center mb-3"
+
+            cls="d-flex justify-content-between align-items-center mb-3 flex-wrap"
         ),
+
         
         # Submit button
         Button("Login", variant="primary", full_width=True, type="submit"),
+        A("Forgot password?", href="/forgot-password", cls="text-decoration-none mt-2 d-block text-center"),
         
         method="post",
         action="/login",
         cls="mx-auto",
-        style="min-width: 320px;"
+        style="max-width: 400px;"
     )
 
 
@@ -70,7 +74,7 @@ def LoginPage(error: str | None = None) -> FT:
                 cls="text-center text-white d-flex justify-content-center align-items-center",
                 style="background-color: var(--bs-primary); border-radius: 10px; width: 60px; height: 60px;"
             ),
-            cls="mb-4 d-flex justify-content-center align-items-center",
+            cls="mb-4 d-flex justify-content-center align-items-center w-100",
         ),
         H1("SIWES Portal", cls="text-center mb-2"),
         P("Sign in to your account", cls="text-center text-muted mb-4"),

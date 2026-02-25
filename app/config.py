@@ -84,6 +84,12 @@ class Settings(BaseSettings):
         default=None,
         description="Daily.co domain for room creation"
     )
+    call_ring_timeout_seconds: int = Field(
+        default=75,
+        ge=15,
+        le=300,
+        description="Seconds before unanswered ringing call is auto-marked as missed"
+    )
     
     # Application
     debug: bool = Field(

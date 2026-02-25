@@ -1,0 +1,26 @@
+[
+    {
+        "full_name": "Dr. Ada Williams",
+        "email": "ada.williams@university.edu.ng",
+        "password": "password123",
+        "department": "Computer Science",
+        "role": "supervisor",
+        "is_active": true
+    },
+    {
+        "full_name": "Prof. Ibrahim Sani",
+        "email": "i.sani@university.edu.ng",
+        "password": "password123",
+        "department": "Information Technology",
+        "role": "supervisor",
+        "is_active": true
+    },
+    {
+        "full_name": "Dr. Chioma Okeke",
+        "email": "c.okeke@university.edu.ng",
+        "password": "password123",
+        "department": "Software Engineering",
+        "role": "supervisor",
+        "is_active": true
+    }
+]

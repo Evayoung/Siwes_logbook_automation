@@ -192,7 +192,7 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
     Args:
         date: ISO date string (YYYY-MM-DD)
     """
-    is_readonly = existing_log and existing_log.get("status") == "verified"
+    is_readonly = bool(existing_log and (existing_log.get("status") == "verified" or existing_log.get("readonly")))
     
     return Div(
         # ... GPS Alerts ...
@@ -218,6 +218,11 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
             ),
             variant="success"
         ),
+        Alert(
+            existing_log.get("lock_message"),
+            variant="warning",
+            cls="mb-3",
+        ) if existing_log and existing_log.get("lock_message") else "",
         
         # Form
         Form(
@@ -269,65 +274,43 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
                 cls="d-flex justify-content-end"
             ),
             
-            # Offline/Sync submission script
-            Script("""
-                const form = document.currentScript.parentElement;
-                form.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    
-                    const submitBtn = document.getElementById('submit-btn');
-                    const originalText = submitBtn.textContent;
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Saving...';
-                    
-                    try {
-                        // Gather data
-                        const formData = new FormData(form);
-                        const data = Object.fromEntries(formData.entries());
-                        
-                        // Save specific types
-                        data.week_number = '""" + str(existing_log.get('week_number', 0) if existing_log else 0) + """'; 
-                        
-                        // Save to IndexedDB via SyncManager
-                        if (window.syncManager) {
-                            await window.syncManager.saveLog(data);
-                            console.log("Saved to IndexedDB");
-                            
-                            // Try sync if online
-                            if (navigator.onLine) {
-                                await window.syncManager.syncWithServer();
-                            } else {
-                                alert("Saved offline. Will sync when online.");
-                            }
-                        } else {
-                            // Fallback if sync manager missing (shouldn't happen)
-                            alert("Sync manager not loaded!");
-                        }
-                        
-                        // Reload to show updates (served from DB or local)
-                        window.location.reload();
-                        
-                    } catch (err) {
-                        console.error("Save error:", err);
-                        alert("Error saving log: " + err.message);
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
-                    }
-                });
-            """),
-            
             # GPS capture script
             Script(GPS_CAPTURE_SCRIPT) if not existing_log else "",
             
             method="post",
-            action="/student/logbook/create"
+            action="/student/logbook/create",
+            hx_post="/student/logbook/create",
+            hx_target="#modal-body-content",
+            hx_swap="outerHTML"
         ),
         
         id="modal-body-content"
     )
 
 
-def LogbookPage(weeks_data: List[Dict], current_week: int, total_weeks: int = 25) -> FT:
+def LogAccessBlockedModalBody(message: str) -> FT:
+    """Read-only modal body for blocked log dates."""
+    return Div(
+        Alert(message, variant="warning"),
+        Div(
+            Button(
+                "Close",
+                type="button",
+                variant="secondary",
+                data_bs_dismiss="modal",
+            ),
+            cls="d-flex justify-content-end",
+        ),
+        id="modal-body-content",
+    )
+
+
+def LogbookPage(
+    weeks_data: List[Dict],
+    current_week: int,
+    total_weeks: int = 25,
+    offline_mode_enabled: bool = True,
+) -> FT:
     """Main logbook page with week cards.
     
     Args:
@@ -344,6 +327,7 @@ def LogbookPage(weeks_data: List[Dict], current_week: int, total_weeks: int = 25
             Div(
                 H2("Daily Logbook", cls="mb-0"),
                 P("25-Week SIWES Program", cls="text-muted"),
+                cls="flex-grow-1"
             ),
             Button(
                 Icon("plus-lg", cls="me-2"),
@@ -353,10 +337,26 @@ def LogbookPage(weeks_data: List[Dict], current_week: int, total_weeks: int = 25
                 data_bs_target="#logModal",
                 hx_get="/student/logbook/day/today",
                 hx_target="#modal-body-content",
-                hx_swap="innerHTML"
+                hx_swap="innerHTML",
+                style="width: 200px;"
             ),
-            cls="d-flex justify-content-between align-items-start mb-4 g-3",
+            cls="d-flex justify-content-between align-items-start mb-4 gap-3 flex-wrap",
         ),
+        Div(
+            Icon("geo-alt-fill", cls="me-2"),
+            Span("GPS is off or unavailable. Please enable location before submitting today’s log."),
+            cls="alert alert-warning d-none align-items-center",
+            id="logbook-gps-warning",
+        ),
+        Alert(
+            Div(
+                Icon("wifi", cls="me-2"),
+                "Offline mode is disabled. Internet connection is required for offline sync features.",
+                cls="d-flex align-items-center",
+            ),
+            variant="warning",
+            cls="mb-3",
+        ) if not offline_mode_enabled else "",
         
         # Filter tabs
         FilterTabs(),
@@ -413,5 +413,35 @@ def LogbookPage(weeks_data: List[Dict], current_week: int, total_weeks: int = 25
             title="Log Entry",
             centered=True,
             size="lg"
-        )
+        ),
+        Script("""
+            (function() {
+                const banner = document.getElementById('logbook-gps-warning');
+                if (!banner) return;
+                const show = () => banner.classList.remove('d-none');
+                const hide = () => banner.classList.add('d-none');
+
+                if (!navigator.geolocation) {
+                    show();
+                    return;
+                }
+
+                if (navigator.permissions && navigator.permissions.query) {
+                    navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+                        if (result.state === 'granted') hide();
+                        else show();
+                        result.onchange = function () {
+                            if (result.state === 'granted') hide();
+                            else show();
+                        };
+                    }).catch(show);
+                } else {
+                    navigator.geolocation.getCurrentPosition(
+                        function() { hide(); },
+                        function() { show(); },
+                        { timeout: 2000 }
+                    );
+                }
+            })();
+        """),
     )

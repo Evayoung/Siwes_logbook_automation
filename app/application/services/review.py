@@ -85,9 +85,9 @@ class ReviewService:
         # Update log
         updates = {
             "status": LogStatus.VERIFIED,
-            "reviewed_by": supervisor_id,
+            "reviewer_id": supervisor_id,
             "reviewed_at": datetime.utcnow(),
-            "supervisor_feedback": feedback
+            "reviewer_comment": feedback
         }
         
         return self.log_repo.update(log_id, updates)
@@ -131,9 +131,9 @@ class ReviewService:
         # Update log
         updates = {
             "status": LogStatus.FLAGGED,
-            "reviewed_by": supervisor_id,
+            "reviewer_id": supervisor_id,
             "reviewed_at": datetime.utcnow(),
-            "supervisor_feedback": reason
+            "reviewer_comment": reason
         }
         
         return self.log_repo.update(log_id, updates)
@@ -164,7 +164,7 @@ class ReviewService:
         # Update log
         updates = {
             "status": LogStatus.PENDING_REVIEW,
-            "reviewed_by": supervisor_id,
+            "reviewer_id": supervisor_id,
             "reviewed_at": datetime.utcnow()
         }
         

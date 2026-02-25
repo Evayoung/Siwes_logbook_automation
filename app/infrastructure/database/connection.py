@@ -7,13 +7,16 @@ and provides utilities for database connection management.
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 from app.domain.models.base import Base
+
+# Import all models to ensure they're registered with Base.metadata
+from app.domain.models import *
 
 
 # Get database URL from settings
@@ -76,6 +79,41 @@ def init_db() -> None:
         This is primarily for development and testing.
     """
     Base.metadata.create_all(bind=engine)
+    _apply_schema_patches()
+
+
+def _apply_schema_patches() -> None:
+    """Apply safe, idempotent schema patches for known drift issues.
+
+    This project currently uses script-based migrations in development.
+    These patches keep existing databases aligned with ORM models.
+    """
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    patches: list[str] = []
+
+    if "call_logs" in table_names:
+        call_log_columns = {c["name"] for c in inspector.get_columns("call_logs")}
+        if "notified_at" not in call_log_columns:
+            patches.append("ALTER TABLE call_logs ADD COLUMN notified_at TIMESTAMP NULL")
+        if "call_type" not in call_log_columns:
+            patches.append("ALTER TABLE call_logs ADD COLUMN call_type VARCHAR(10) DEFAULT 'video' NOT NULL")
+        if "notes" not in call_log_columns:
+            patches.append("ALTER TABLE call_logs ADD COLUMN notes TEXT NULL")
+
+    if "student_profiles" in table_names:
+        student_profile_columns = {c["name"] for c in inspector.get_columns("student_profiles")}
+        if "setting_location_service" not in student_profile_columns:
+            patches.append("ALTER TABLE student_profiles ADD COLUMN setting_location_service BOOLEAN NOT NULL DEFAULT TRUE")
+        if "setting_offline_mode" not in student_profile_columns:
+            patches.append("ALTER TABLE student_profiles ADD COLUMN setting_offline_mode BOOLEAN NOT NULL DEFAULT FALSE")
+        if "setting_notifications" not in student_profile_columns:
+            patches.append("ALTER TABLE student_profiles ADD COLUMN setting_notifications BOOLEAN NOT NULL DEFAULT TRUE")
+
+    if patches:
+        with engine.begin() as conn:
+            for ddl in patches:
+                conn.execute(text(ddl))
 
 
 def drop_db() -> None:

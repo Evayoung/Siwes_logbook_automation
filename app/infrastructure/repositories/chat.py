@@ -69,8 +69,7 @@ class ChatRepository(BaseRepository[ChatMessage]):
                     ChatMessage.sender_id == user2_id,
                     ChatMessage.receiver_id == user1_id
                 )
-            ),
-            ChatMessage.deleted_at.is_(None)
+            )
         ).order_by(ChatMessage.created_at).limit(limit).all()
     
     def get_user_messages(
@@ -94,8 +93,7 @@ class ChatRepository(BaseRepository[ChatMessage]):
             or_(
                 ChatMessage.sender_id == user_id,
                 ChatMessage.receiver_id == user_id
-            ),
-            ChatMessage.deleted_at.is_(None)
+            )
         ).order_by(ChatMessage.created_at.desc()).limit(limit).all()
     
     def get_unread_messages(self, user_id: str) -> List[ChatMessage]:
@@ -113,8 +111,7 @@ class ChatRepository(BaseRepository[ChatMessage]):
         """
         return self.db.query(ChatMessage).filter(
             ChatMessage.receiver_id == user_id,
-            ChatMessage.is_read == False,
-            ChatMessage.deleted_at.is_(None)
+            ChatMessage.is_read == False
         ).order_by(ChatMessage.created_at).all()
     
     def count_unread_messages(self, user_id: str) -> int:
@@ -132,8 +129,7 @@ class ChatRepository(BaseRepository[ChatMessage]):
         """
         return self.db.query(ChatMessage).filter(
             ChatMessage.receiver_id == user_id,
-            ChatMessage.is_read == False,
-            ChatMessage.deleted_at.is_(None)
+            ChatMessage.is_read == False
         ).count()
     
     def mark_as_read(self, message_ids: List[str]) -> int:
@@ -150,8 +146,7 @@ class ChatRepository(BaseRepository[ChatMessage]):
             >>> print(f"Marked {updated} messages as read")
         """
         result = self.db.query(ChatMessage).filter(
-            ChatMessage.id.in_(message_ids),
-            ChatMessage.deleted_at.is_(None)
+            ChatMessage.id.in_(message_ids)
         ).update(
             {"is_read": True},
             synchronize_session=False
@@ -182,8 +177,7 @@ class ChatRepository(BaseRepository[ChatMessage]):
         result = self.db.query(ChatMessage).filter(
             ChatMessage.receiver_id == receiver_id,
             ChatMessage.sender_id == sender_id,
-            ChatMessage.is_read == False,
-            ChatMessage.deleted_at.is_(None)
+            ChatMessage.is_read == False
         ).update(
             {"is_read": True},
             synchronize_session=False

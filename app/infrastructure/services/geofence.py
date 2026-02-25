@@ -135,8 +135,8 @@ class GeofenceService:
         distance = self.calculate_distance(
             lat1=latitude,
             lon1=longitude,
-            lat2=geofence.center_latitude,
-            lon2=geofence.center_longitude
+            lat2=geofence.latitude,
+            lon2=geofence.longitude
         )
         
         return distance <= geofence.radius_meters
@@ -216,8 +216,8 @@ class GeofenceService:
         distance = self.calculate_distance(
             lat1=latitude,
             lon1=longitude,
-            lat2=geofence.center_latitude,
-            lon2=geofence.center_longitude
+            lat2=geofence.latitude,
+            lon2=geofence.longitude
         )
         
         is_within = distance <= geofence.radius_meters

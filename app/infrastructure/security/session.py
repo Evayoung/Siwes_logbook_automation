@@ -17,6 +17,7 @@ Example:
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timedelta
 from functools import wraps
+import inspect
 from app.infrastructure.database.connection import engine
 
 from fasthtml.common import Request, RedirectResponse
@@ -146,33 +147,43 @@ def require_auth(redirect_to: str = "/login"):
         - Returns RedirectResponse if authentication fails
     """
     def decorator(func: Callable):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
+        def _inject_user(args, kwargs):
             # Extract request and db from args/kwargs
             request = kwargs.get('request') or (args[0] if args else None)
-            
+
             # Try to get db from kwargs/args, then request.state
             db = kwargs.get('db') or (args[1] if len(args) > 1 else None)
             if not db and request and hasattr(request.state, "db"):
                 db = request.state.db
-                # Inject into kwargs for the wrapped function
                 kwargs['db'] = db
-            
+
             if not request or not db:
-                raise ValueError(
-                    "Route handler must accept 'request' and 'db' parameters"
-                )
-            
-            # Check authentication
+                raise ValueError("Route handler must accept 'request' and 'db' parameters")
+
             user = get_current_user(request, db)
             if not user:
-                return RedirectResponse(url=redirect_to, status_code=303)
-            
-            # Add user to kwargs
+                return None, RedirectResponse(url=redirect_to, status_code=303)
+
             kwargs['current_user'] = user
+            return user, None
+
+        if inspect.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                _, redirect = _inject_user(args, kwargs)
+                if redirect:
+                    return redirect
+                return await func(*args, **kwargs)
+            return async_wrapper
+
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            _, redirect = _inject_user(args, kwargs)
+            if redirect:
+                return redirect
             return func(*args, **kwargs)
-        
-        return wrapper
+
+        return sync_wrapper
     return decorator
 
 
@@ -202,23 +213,27 @@ def require_role(*allowed_roles: UserRole, redirect_to: str = "/unauthorized"):
         - Returns RedirectResponse if role check fails
     """
     def decorator(func: Callable):
+        if inspect.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                user = kwargs.get('current_user')
+                if not user:
+                    raise ValueError("@require_role must be used with @require_auth")
+                if user.role not in allowed_roles:
+                    return RedirectResponse(url=redirect_to, status_code=303)
+                return await func(*args, **kwargs)
+            return async_wrapper
+
         @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Get current user from kwargs (added by require_auth)
+        def sync_wrapper(*args, **kwargs):
             user = kwargs.get('current_user')
-            
             if not user:
-                raise ValueError(
-                    "@require_role must be used with @require_auth"
-                )
-            
-            # Check role
+                raise ValueError("@require_role must be used with @require_auth")
             if user.role not in allowed_roles:
                 return RedirectResponse(url=redirect_to, status_code=303)
-            
             return func(*args, **kwargs)
-        
-        return wrapper
+
+        return sync_wrapper
     return decorator
 
 

@@ -13,7 +13,7 @@ Example:
 """
 
 from typing import List, Dict, Any
-from datetime import date
+from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.application.services.log import LogService
@@ -70,7 +70,7 @@ class SyncService:
             ...         "client_uuid": "offline-uuid-1",
             ...         "placement_id": placement_id,
             ...         "log_date": "2024-01-15",
-            ...         "activities": "Worked on project",
+            ...         "activity_description": "Worked on project",
             ...         "latitude": 6.5244,
             ...         "longitude": 3.3792
             ...     }
@@ -101,11 +101,15 @@ class SyncService:
                     log_date = log_date_str
                 
                 # Create log
+                activity_description = log_data.get("activity_description") or log_data.get("activities")
+                if not activity_description:
+                    raise ValueError("Missing activity_description")
+
                 self.log_service.create_log(
                     student_id=student_id,
                     placement_id=log_data["placement_id"],
                     log_date=log_date,
-                    activities=log_data["activities"],
+                    activity_description=activity_description,
                     latitude=log_data["latitude"],
                     longitude=log_data["longitude"],
                     client_uuid=client_uuid,
@@ -149,7 +153,7 @@ class SyncService:
             {
                 "id": log.id,
                 "log_date": log.log_date.isoformat(),
-                "activities": log.activities,
+                "activity_description": log.activity_description,
                 "client_uuid": log.client_uuid
             }
             for log in logs
@@ -170,7 +174,7 @@ class SyncService:
         count = 0
         
         for log_id in log_ids:
-            log = self.log_repo.update(log_id, {"is_synced": True})
+            log = self.log_repo.update(log_id, {"synced_at": datetime.utcnow()})
             if log:
                 count += 1
         

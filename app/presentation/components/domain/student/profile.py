@@ -1,7 +1,7 @@
 """Student Profile components."""
 
 from fasthtml.common import *
-from faststrap import Card, Button, Icon, Row, Col, Badge, Switch, Progress, ProgressBar
+from faststrap import Card, Button, Icon, Row, Col, Badge, Alert
 
 
 def ProfileHeader(user_name: str, email: str, matric_no: str, department: str) -> FT:
@@ -144,87 +144,112 @@ def DurationCard(start_date: str, end_date: str, weeks: int, months: int) -> FT:
     )
 
 
-def SettingsCard() -> FT:
-    """Settings card with switches."""
+def _setting_switch(name: str, checked: bool, title: str, description: str, icon: str) -> FT:
+    return Div(
+        Div(
+            Icon(icon, cls="me-3 text-muted fs-5"),
+            Div(
+                P(title, cls="mb-0 fw-medium"),
+                P(description, cls="mb-0 text-muted small"),
+            ),
+            cls="d-flex align-items-center",
+        ),
+        Div(
+            Input(
+                type="checkbox",
+                cls="form-check-input",
+                name=name,
+                checked=checked,
+                value="1",
+                role="switch",
+            ),
+            cls="form-check form-switch mb-0",
+        ),
+        cls="d-flex justify-content-between align-items-center mb-4",
+    )
+
+
+def SettingsCard(settings: dict | None = None, notice: str | None = None, notice_variant: str = "success") -> FT:
+    """Settings card with persisted profile toggles."""
+    settings = settings or {}
     return Card(
         H5(
             Icon("gear", cls="me-2 text-primary"),
             "Settings", 
             cls="mb-4 d-flex align-items-center"
         ),
-        Div(
-            # Location
+        Alert(notice, variant=notice_variant, cls="mb-3") if notice else "",
+        Form(
             Div(
-                Div(
-                    Icon("geo-alt", cls="me-3 text-muted fs-5"),
-                    Div(
-                        P("Location Services", cls="mb-0 fw-medium"),
-                        P("Enable GPS for geofence tracking", cls="mb-0 text-muted small"),
-                    ),
-                    cls="d-flex align-items-center"
+                _setting_switch(
+                    "location_service",
+                    bool(settings.get("location_service", True)),
+                    "Location Services",
+                    "Enable GPS prompts for geofence tracking",
+                    "geo-alt",
                 ),
-                Switch("location_service", checked=True),
-                cls="d-flex justify-content-between align-items-center mb-4"
+                _setting_switch(
+                    "offline_mode",
+                    bool(settings.get("offline_mode", False)),
+                    "Offline Mode",
+                    "Allow cached mode when internet is unstable",
+                    "wifi-off",
+                ),
+                _setting_switch(
+                    "notifications",
+                    bool(settings.get("notifications", True)),
+                    "Notifications",
+                    "Receive alerts and updates",
+                    "bell",
+                ),
+                cls="px-2",
             ),
-            # Offline
             Div(
-                Div(
-                    Icon("wifi-off", cls="me-3 text-muted fs-5"),
-                    Div(
-                        P("Offline Mode", cls="mb-0 fw-medium"),
-                        P("Cache data for offline use", cls="mb-0 text-muted small"),
-                    ),
-                    cls="d-flex align-items-center"
+                Button(
+                    Icon("save", cls="me-2"),
+                    "Save Settings",
+                    variant="primary",
+                    cls="px-4",
+                    type="submit",
                 ),
-                Switch("offline_mode", checked=False),
-                cls="d-flex justify-content-between align-items-center mb-4"
+                cls="mt-4 d-flex justify-content-end",
             ),
-            # Notifications
-            Div(
-                Div(
-                    Icon("bell", cls="me-3 text-muted fs-5"),
-                    Div(
-                        P("Notifications", cls="mb-0 fw-medium"),
-                        P("Receive alerts and updates", cls="mb-0 text-muted small"),
-                    ),
-                    cls="d-flex align-items-center"
-                ),
-                Switch("notifications", checked=True),
-                cls="d-flex justify-content-between align-items-center"
-            ),
-            cls="px-2"
+            hx_post="/student/profile/settings",
+            hx_target="#student-settings-card",
+            hx_swap="outerHTML",
         ),
-        Div(
-            Button(
-                Icon("save", cls="me-2"),
-                "Save Settings",
-                variant="primary",
-                cls="px-4" # Removed w-100, added padding
-            ),
-            cls="mt-4 d-flex justify-content-end" # Aligned right
-        ),
-        cls="mb-4 white-color border-0 shadow-sm"
+        cls="mb-4 white-color border-0 shadow-sm",
+        id="student-settings-card",
     )
 
 
-def StudentProfilePage() -> FT:
-    """Complete student profile page."""
+def StudentProfilePage(user: dict = None, placement: dict = None, settings: dict | None = None) -> FT:
+    """Complete student profile page.
     
-    # Mock data
-    user = {
-        "name": "John Doe",
-        "email": "john.doe@student.edu",
-        "matric": "CSC/2020/001",
-        "dept": "Computer Science",
-        "inst": "University of Technology"
-    }
+    Args:
+        user: Dictionary providing user info (name, email, matric, dept, inst, start_date, end_date)
+        placement: Dictionary providing placement info (company, address, supervisor, radius)
+    """
     
-    placement = {
-        "company": "Tech Industries Ltd.",
-        "address": "123 Innovation Drive, Tech City",
-        "supervisor": "Mr. James Wilson",
-        "radius": "500 meters"
-    }
+    # Default fallbacks if None (prevents crash, shows placeholders)
+    if not user:
+        user = {
+            "name": "Loading...",
+            "email": "--",
+            "matric": "--",
+            "dept": "--",
+            "inst": "--",
+            "start": "--",
+            "end": "--"
+        }
+    
+    if not placement:
+        placement = {
+            "company": "No Active Placement",
+            "address": "--",
+            "supervisor": "--",
+            "radius": "--"
+        }
     
     return Div(
         # Page Title
@@ -242,9 +267,9 @@ def StudentProfilePage() -> FT:
         
         PlacementDetailsCard(placement["company"], placement["address"], placement["supervisor"], placement["radius"]),
         
-        DurationCard("January 8, 2024", "July 5, 2024", 25, 6),
+        DurationCard(user.get("start", "--"), user.get("end", "--"), 24, 6), # Fixed duration calc for now
         
-        SettingsCard(),
+        SettingsCard(settings=settings),
         
         cls="profile-page mx-auto", # Centered
         style="max-width: 850px;" # Constrained width

@@ -169,7 +169,7 @@ class LogRepository(BaseRepository[DailyLog]):
             student_id: The student's user ID
         
         Returns:
-            List of DailyLog instances with is_synced=False
+            List of DailyLog instances with synced_at=None
         
         Example:
             >>> unsynced = repo.get_unsynced_logs(student_id)
@@ -179,7 +179,7 @@ class LogRepository(BaseRepository[DailyLog]):
         """
         return self.db.query(DailyLog).filter(
             DailyLog.student_id == student_id,
-            DailyLog.is_synced == False
+            DailyLog.synced_at.is_(None)
         ).order_by(DailyLog.log_date).all()
     
     def get_by_client_uuid(self, client_uuid: str) -> Optional[DailyLog]:

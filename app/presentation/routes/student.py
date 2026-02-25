@@ -1,19 +1,30 @@
 from fasthtml.common import *
-from typing import Optional
+from typing import Optional, List, Dict
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_, desc
 from datetime import date, datetime, timedelta
 from app.domain.models.user import User, UserRole
 from app.infrastructure.security.session import require_auth, require_role
-from app.domain.models.log import LogStatus
+from app.domain.models.log import DailyLog, LogStatus
+from app.domain.models.chat import Notification, NotificationType
 from app.application.services.log import LogService
 from app.presentation.components.domain.student.dashboard import StudentDashboard
-from app.presentation.components.domain.student.logbook import LogbookPage, WeekCard, LogEntryModalBody, FilterTabs
+from app.presentation.components.domain.student.logbook import (
+    LogbookPage,
+    WeekCard,
+    LogEntryModalBody,
+    LogAccessBlockedModalBody,
+    FilterTabs,
+)
 from app.presentation.components.domain.student.communication import CommunicationPage
-from app.presentation.components.domain.student.profile import StudentProfilePage
+from app.presentation.components.domain.student.profile import StudentProfilePage, SettingsCard
 from app.presentation.components.ui.layouts import DashboardLayout
 from app.presentation.components.ui.navigation import StudentSidebarNav, StudentBottomNav
 from app.infrastructure.repositories.placement import PlacementRepository
 from app.application.services.sync import SyncService
+from app.application.services.notifications import notification_manager
+from app.application.services.notification import NotificationService
+from app.domain.models.user import StudentProfile
 
 
 def setup_student_routes(app: FastHTML):
@@ -37,16 +48,89 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Dashboard HTML
         """
-        # TODO: Get real data from database
         user_name = current_user.full_name if current_user else "Student"
-        
-        return StudentDashboard(
+        current_week = _calculate_current_week(db, current_user.id)
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        placement = PlacementRepository(db).get_active_placement(current_user.id)
+        logs = LogService(db).get_student_logs(current_user.id, placement.id) if placement else []
+
+        verified = sum(1 for log in logs if _status_key(log.status) == "verified")
+        pending = sum(1 for log in logs if _status_key(log.status) == "pending_review")
+        flagged = sum(1 for log in logs if _status_key(log.status) == "flagged")
+        total_logs = len(logs)
+        hours = total_logs * 8
+        missed = _calculate_missed_logs(student_profile, logs)
+
+        current_week_logs = [log for log in logs if log.week_number == current_week]
+        days_logged_this_week = len(current_week_logs)
+
+        most_recent_log = logs[0] if logs else None
+        if most_recent_log:
+            last_entry_label = (
+                f"{most_recent_log.log_date.strftime('%b %d')}, "
+                f"{most_recent_log.created_at.strftime('%I:%M %p') if most_recent_log.created_at else '--:--'}"
+            )
+        else:
+            last_entry_label = "No entry yet"
+
+        completion_percent = min(int(round((total_logs / 125) * 100)), 100)
+        week_progress_percent = min(int(round((current_week / 25) * 100)), 100)
+
+        location_logs = [log for log in logs if _location_key(log.location_status) in {"within", "outside"}]
+        location_within_count = sum(1 for log in location_logs if _location_key(log.location_status) == "within")
+        location_total_count = len(location_logs)
+        location_accuracy_percent = (
+            int(round((location_within_count / location_total_count) * 100))
+            if location_total_count
+            else 0
+        )
+
+        recent_activities = []
+        for log in logs[:5]:
+            description = (log.activity_description or "").strip()
+            if len(description) > 80:
+                description = f"{description[:77]}..."
+            location_key = _location_key(log.location_status)
+            if location_key == "within":
+                location_label = "Within geofence"
+            elif location_key == "outside":
+                location_label = "Outside geofence"
+            else:
+                location_label = "Location unknown"
+
+            recent_activities.append(
+                {
+                    "date": log.log_date,
+                    "description": description or "No description",
+                    "week_number": log.week_number,
+                    "location_label": location_label,
+                    "status": _status_key(log.status),
+                }
+            )
+
+        content = StudentDashboard(
             user_name=user_name,
-            current_week=5,
-            verified=3,
-            pending=3,
-            flagged=0,
-            hours=46
+            current_week=current_week,
+            verified=verified,
+            pending=pending,
+            flagged=flagged,
+            missed=missed,
+            hours=hours,
+            completion_percent=completion_percent,
+            week_progress_percent=week_progress_percent,
+            days_logged_this_week=days_logged_this_week,
+            last_entry_label=last_entry_label,
+            location_accuracy_percent=location_accuracy_percent,
+            location_within_count=location_within_count,
+            location_total_count=location_total_count,
+            recent_activities=recent_activities,
+        )
+
+        return DashboardLayout(
+            content,
+            sidebar=StudentSidebarNav(active_page="dashboard"),
+            bottom_nav=StudentBottomNav(active_page="dashboard"),
+            current_user=current_user,
         )
     
     @app.get("/student/communication")
@@ -63,21 +147,126 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Communication page HTML or HTMX partial
         """
-        # Check if HTMX request (partial update)
+        tab = "calls" if tab == "calls" else "chat"
+        # Fetch real supervisor data
+        from app.domain.models.user import StudentProfile, User
+        
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        supervisor_data = None
+        
+        if student_profile and student_profile.assigned_supervisor_id:
+            supervisor = db.query(User).filter(User.id == student_profile.assigned_supervisor_id).first()
+            if supervisor:
+                is_online = supervisor.id in set(notification_manager.get_active_users())
+                supervisor_data = {
+                    "id": supervisor.id,
+                    "name": supervisor.full_name,
+                    "department": student_profile.department, # Assuming same dept
+                    "status": "Online" if is_online else "Offline"
+                }
+        
+        # Default fallback
+        if not supervisor_data:
+            supervisor_data = {
+                "id": "",
+                "name": "No Supervisor Assigned",
+                "department": "N/A",
+                "status": "Offline"
+            }
+            
+        # Fetch Chat History
+        messages = []
+        has_more_messages = False
+        oldest_message_at = None
+        if supervisor_data.get("id"):
+            from app.domain.models.chat import ChatMessage
+            
+            sup_id = supervisor_data["id"]
+            # Mark incoming messages in this conversation as read.
+            db.query(ChatMessage).filter(
+                ChatMessage.sender_id == sup_id,
+                ChatMessage.receiver_id == current_user.id,
+                ChatMessage.is_read == False,
+            ).update({"is_read": True}, synchronize_session=False)
+            db.query(Notification).filter(
+                Notification.user_id == current_user.id,
+                Notification.type == NotificationType.MESSAGE_RECEIVED,
+                Notification.is_read == False,
+                Notification.action_url.like(f"%peer_id={sup_id}%"),
+            ).update({"is_read": True}, synchronize_session=False)
+            db.commit()
+
+            page_size = 20
+            chat_logs_desc = db.query(ChatMessage).filter(
+                or_(
+                    and_(ChatMessage.sender_id == current_user.id, ChatMessage.receiver_id == sup_id),
+                    and_(ChatMessage.sender_id == sup_id, ChatMessage.receiver_id == current_user.id)
+                )
+            ).order_by(desc(ChatMessage.created_at)).limit(page_size + 1).all()
+
+            has_more_messages = len(chat_logs_desc) > page_size
+            visible_logs = list(reversed(chat_logs_desc[:page_size]))
+            if visible_logs:
+                oldest_message_at = visible_logs[0].created_at.isoformat()
+            
+            messages = [
+                {
+                    "text": m.message_body,
+                    "time": m.created_at.strftime("%I:%M %p"),
+                    "is_me": m.sender_id == current_user.id
+                }
+                for m in visible_logs
+            ]
+
+        calls = []
+        if supervisor_data.get("id"):
+            from app.domain.models.call import CallLog
+            call_logs = db.query(CallLog).filter(
+                CallLog.student_id == current_user.id,
+                CallLog.supervisor_id == supervisor_data["id"]
+            ).order_by(CallLog.started_at.desc()).limit(50).all()
+
+            for call in call_logs:
+                initiator_id = _extract_initiator_id(call.notes)
+                call_type = "outgoing" if initiator_id == current_user.id else "incoming"
+                duration = "Missed" if call.status in {"declined", "missed"} else f"{(call.duration_minutes or 0)} min"
+                calls.append(
+                    {
+                        "name": supervisor_data["name"],
+                        "type": call_type,
+                        "duration": duration,
+                        "time": call.started_at.strftime("%b %d, %I:%M %p"),
+                    }
+                )
+
+        if tab == "calls":
+            db.query(Notification).filter(
+                Notification.user_id == current_user.id,
+                Notification.is_read == False,
+                Notification.action_url.like("%/student/communication?tab=calls%"),
+            ).update({"is_read": True}, synchronize_session=False)
+            db.commit()
+
+        body = Div(
+            CommunicationPage(
+                active_tab=tab,
+                supervisor=supervisor_data,
+                messages=messages,
+                calls=calls,
+                oldest_message_at=oldest_message_at,
+                has_more_messages=has_more_messages,
+            ),
+            id="student-communication-root",
+        )
+
         if request.headers.get("HX-Request"):
-            from app.presentation.components.domain.student.communication import CommunicationTabs, CommunicationContent
-            return (
-                CommunicationTabs(active_tab=tab),
-                CommunicationContent(active_tab=tab)
-            )
-        
-        # Full page load
-        content = CommunicationPage(active_tab=tab)
-        
+            return body
+
         return DashboardLayout(
-            content,
+            body,
             sidebar=StudentSidebarNav(active_page="communication"),
-            bottom_nav=StudentBottomNav(active_page="communication")
+            bottom_nav=StudentBottomNav(active_page="communication"),
+            current_user=current_user,
         )
     
     @app.get("/student/profile")
@@ -93,12 +282,93 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Profile page HTML
         """
-        content = StudentProfilePage()
+        from app.domain.models.user import StudentProfile, User
+        from app.infrastructure.repositories.placement import PlacementRepository
+        
+        # Fetch profile
+        profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        
+        # Fetch placement
+        placement_repo = PlacementRepository(db)
+        placement = placement_repo.get_active_placement(current_user.id)
+        
+        # Prepare User Data
+        user_data = {
+            "name": current_user.full_name,
+            "email": current_user.email,
+            "matric": profile.matriculation_number if profile else "--",
+            "dept": profile.department if profile else "--",
+            "inst": profile.institution if profile else "--",
+            "start": profile.siwes_start_date.strftime("%B %d, %Y") if profile and profile.siwes_start_date else "--",
+            "end": profile.siwes_end_date.strftime("%B %d, %Y") if profile and profile.siwes_end_date else "--"
+        }
+        
+        # Prepare Placement Data
+        placement_data = None
+        if placement:
+            # Try to get supervisor name
+            supervisor_name = "Not Assigned"
+            if profile and profile.assigned_supervisor_id:
+                sup = db.query(User).filter(User.id == profile.assigned_supervisor_id).first()
+                if sup:
+                    supervisor_name = sup.full_name
+            
+            placement_data = {
+                "company": placement.company_name,
+                "address": placement.address,
+                "supervisor": supervisor_name,
+                "radius": f"{placement.geofence.radius_meters} meters" if placement.geofence else "Not set"
+            }
+        settings_data = {
+            "location_service": bool(getattr(profile, "setting_location_service", True)) if profile else True,
+            "offline_mode": bool(getattr(profile, "setting_offline_mode", False)) if profile else False,
+            "notifications": bool(getattr(profile, "setting_notifications", True)) if profile else True,
+        }
+            
+        content = StudentProfilePage(user=user_data, placement=placement_data, settings=settings_data)
         
         return DashboardLayout(
             content,
             sidebar=StudentSidebarNav(active_page="profile"),
-            bottom_nav=StudentBottomNav(active_page="profile")
+            bottom_nav=StudentBottomNav(active_page="profile"),
+            current_user=current_user,
+        )
+
+    @app.post("/student/profile/settings")
+    @require_auth()
+    @require_role(UserRole.STUDENT)
+    async def save_student_settings(request: Request, db: Session = None, current_user: Optional[User] = None):
+        """Persist student profile preference toggles."""
+        form = await request.form()
+        location_service = bool(form.get("location_service"))
+        offline_mode = bool(form.get("offline_mode"))
+        notifications = bool(form.get("notifications"))
+
+        profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        if not profile:
+            return SettingsCard(
+                settings={
+                    "location_service": location_service,
+                    "offline_mode": offline_mode,
+                    "notifications": notifications,
+                },
+                notice="Profile not found. Settings were not saved.",
+                notice_variant="danger",
+            )
+
+        profile.setting_location_service = location_service
+        profile.setting_offline_mode = offline_mode
+        profile.setting_notifications = notifications
+        db.commit()
+
+        return SettingsCard(
+            settings={
+                "location_service": location_service,
+                "offline_mode": offline_mode,
+                "notifications": notifications,
+            },
+            notice="Settings saved successfully.",
+            notice_variant="success",
         )
 
     @app.get("/student/logbook")
@@ -114,19 +384,23 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Logbook page HTML
         """
-        # TODO: Get real data from database
         weeks_data = _get_weeks_data(db, current_user.id, "all")
+        current_week = _calculate_current_week(db, current_user.id)
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        offline_mode_enabled = bool(getattr(student_profile, "setting_offline_mode", False)) if student_profile else False
         
         content = LogbookPage(
             weeks_data=weeks_data,
-            current_week=5, # Should be calculated
-            total_weeks=25
+            current_week=current_week,
+            total_weeks=25,
+            offline_mode_enabled=offline_mode_enabled,
         )
         
         return DashboardLayout(
             content,
             sidebar=StudentSidebarNav(active_page="logbook"),
-            bottom_nav=StudentBottomNav(active_page="logbook")
+            bottom_nav=StudentBottomNav(active_page="logbook"),
+            current_user=current_user,
         )
     
     @app.get("/student/logbook/day/{day_date}")
@@ -143,8 +417,42 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Modal body HTML (content only)
         """
-        # TODO: Check if log exists for this date
-        existing_log = None  # Get from database
+        if day_date == "today":
+            day_date = date.today().isoformat()
+
+        existing_log = None
+        try:
+            target_date = date.fromisoformat(day_date)
+            today = date.today()
+            student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+            location_enabled = bool(getattr(student_profile, "setting_location_service", True)) if student_profile else True
+
+            if target_date > today:
+                return LogAccessBlockedModalBody("Sorry future entry not allowed")
+
+            day_log = db.query(DailyLog).filter(
+                DailyLog.student_id == current_user.id,
+                DailyLog.log_date == target_date,
+            ).first()
+
+            if target_date < today and not day_log:
+                return LogAccessBlockedModalBody("Log window passed, please contact your supervisor")
+
+            if day_log:
+                existing_log = {
+                    "status": _status_key(day_log.status) if day_log.status else "",
+                    "description": day_log.activity_description,
+                    "latitude": day_log.latitude,
+                    "longitude": day_log.longitude,
+                }
+
+                if target_date < today:
+                    existing_log["readonly"] = True
+                    existing_log["lock_message"] = "Log window passed, please contact your supervisor"
+            elif target_date == today and not location_enabled:
+                return LogAccessBlockedModalBody("Location Services is disabled in Profile settings. Enable it to create today's log.")
+        except ValueError:
+            existing_log = None
         
         return LogEntryModalBody(date=day_date, existing_log=existing_log)
     
@@ -162,6 +470,7 @@ def setup_student_routes(app: FastHTML):
             Success response or error
         """
         from faststrap import Alert
+        from faststrap.presets import hx_trigger
         
         form_data = await request.form()
         
@@ -169,12 +478,56 @@ def setup_student_routes(app: FastHTML):
         activity_description = form_data.get("activity_description")
         latitude = form_data.get("latitude")
         longitude = form_data.get("longitude")
+
+        try:
+            parsed_log_date = date.fromisoformat(log_date)
+        except Exception:
+            err = "Invalid log date submitted."
+            return Div(
+                Alert(err, variant="danger"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
         
+        # Validate date window
+        today = date.today()
+        if parsed_log_date > today:
+            err = "Sorry future entry not allowed"
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+        if parsed_log_date < today:
+            err = "Log window passed, please contact your supervisor"
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        location_enabled = bool(getattr(student_profile, "setting_location_service", True)) if student_profile else True
+        if not location_enabled:
+            err = "Location Services is disabled in Profile settings. Enable it to submit logs."
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+
         # Validate GPS coordinates are present
         if not latitude or not longitude:
+            err = "GPS location is required. Please enable location services."
             return Div(
-                Alert("GPS location is required. Please enable location services.", variant="danger"),
-                cls="modal-body"
+                Alert(err, variant="danger"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
             )
         
         # Get active placement
@@ -182,9 +535,25 @@ def setup_student_routes(app: FastHTML):
         placement = placement_repo.get_active_placement(current_user.id)
         
         if not placement:
+            err = "No active placement found. You cannot log activities."
             return Div(
-                Alert("No active placement found. You cannot log activities.", variant="danger"),
-                cls="modal-body"
+                Alert(err, variant="danger"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+
+        existing_day_log = db.query(DailyLog).filter(
+            DailyLog.student_id == current_user.id,
+            DailyLog.log_date == parsed_log_date,
+        ).first()
+        if existing_day_log:
+            err = "A log already exists for this date."
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
             )
 
         try:
@@ -193,10 +562,10 @@ def setup_student_routes(app: FastHTML):
             
             # Convert form data to expected dictionary format
             log_data = {
-                "client_uuid": None, # Will be generated if not provided, but usually form fallback creates new
+                "client_uuid": None, # Generated server-side if not provided
                 "placement_id": placement.id,
-                "log_date": log_date,
-                "activities": activity_description, # Map form field to model field
+                "log_date": parsed_log_date.isoformat(),
+                "activity_description": activity_description,
                 "latitude": float(latitude),
                 "longitude": float(longitude),
                 "skills_learned": None,
@@ -207,16 +576,43 @@ def setup_student_routes(app: FastHTML):
             
             if result["failed"] > 0:
                 raise Exception(result["errors"][0])
-                
-            # Return success and close modal
-            return Div(
-                Script("bootstrap.Modal.getInstance(document.getElementById('logModal')).hide(); window.location.reload();")
-            )
+
+            student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+            supervisor_id = student_profile.assigned_supervisor_id if student_profile else None
+            if supervisor_id:
+                await notification_manager.send_to_user(
+                    supervisor_id,
+                    "log_submitted",
+                    {
+                        "student_id": current_user.id,
+                        "student_name": current_user.full_name,
+                        "log_date": parsed_log_date.isoformat(),
+                    },
+                )
+                try:
+                    notif_service = NotificationService(db)
+                    notif_service.create_notification(
+                        user_id=supervisor_id,
+                        notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
+                        title="New Log Submitted",
+                        message=f"{current_user.full_name} submitted a new daily log.",
+                        action_url="/supervisor/logs?filter=pending",
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
+            if request.headers.get("HX-Request"):
+                return hx_trigger({"log_save_result": {"ok": True, "message": "Log entry saved successfully."}})
+            return RedirectResponse("/student/logbook", status_code=303)
             
         except Exception as e:
+            err = f"Error creating log: {str(e)}"
             return Div(
-                Alert(f"Error creating log: {str(e)}", variant="danger"),
-                cls="modal-body"
+                Alert(err, variant="danger"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
             )
 
     @app.post("/student/logbook/sync")
@@ -224,6 +620,11 @@ def setup_student_routes(app: FastHTML):
     @require_role(UserRole.STUDENT)
     async def sync_offline_entry(request: Request, db: Session = None, current_user: Optional[User] = None):
         """Sync a single offline log entry (JSON)."""
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        offline_mode_enabled = bool(getattr(student_profile, "setting_offline_mode", False)) if student_profile else False
+        if not offline_mode_enabled:
+            return JSONResponse({"error": "Offline mode is disabled in profile settings."}, status_code=403)
+
         data = await request.json()
         
         # Get active placement
@@ -239,7 +640,7 @@ def setup_student_routes(app: FastHTML):
                 "client_uuid": data.get("client_uuid"),
                 "placement_id": placement.id,
                 "log_date": data.get("log_date"),
-                "activities": data.get("activity_description"), # Map from JS payload name
+                "activity_description": data.get("activity_description"),
                 "latitude": data.get("latitude"),
                 "longitude": data.get("longitude"),
                 "skills_learned": data.get("skills_learned"),
@@ -318,7 +719,7 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
         # Find weeks that have pending logs
         pending_weeks = set()
         for log in all_logs:
-            if log.status == LogStatus.PENDING_REVIEW:
+            if _status_key(log.status) == "pending_review":
                 pending_weeks.add(log.week_number)
         target_weeks = sorted(list(pending_weeks))
     else: # all
@@ -344,7 +745,7 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
             status = None
             hours = None
             if day_log:
-                status = day_log.status.value # e.g. "verified"
+                status = _status_key(day_log.status)
                 # app/domain/models/log.py LogStatus enum values are strings
                 hours = 8 
             
@@ -363,3 +764,64 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
         })
         
     return weeks_data
+
+
+def _calculate_current_week(db: Session, student_id: str) -> int:
+    """Calculate current SIWES week from student profile start date."""
+    from app.domain.models.user import StudentProfile
+
+    student_profile = db.query(StudentProfile).filter(
+        StudentProfile.user_id == student_id
+    ).first()
+    if not student_profile or not student_profile.siwes_start_date:
+        return 1
+
+    days_since_start = (date.today() - student_profile.siwes_start_date).days
+    return max(1, min((days_since_start // 7) + 1, 25))
+
+
+def _extract_initiator_id(notes: str | None) -> str | None:
+    """Extract initiator metadata from call notes."""
+    if not notes:
+        return None
+    prefix = "initiator:"
+    if notes.startswith(prefix):
+        return notes[len(prefix):]
+    return None
+
+
+def _status_key(status: object) -> str:
+    """Normalize enum/string status values to lowercase string."""
+    if isinstance(status, LogStatus):
+        return status.value
+    return str(status or "").lower()
+
+
+def _location_key(location_status: object) -> str:
+    """Normalize enum/string location status values to lowercase string."""
+    try:
+        value = getattr(location_status, "value", location_status)
+        return str(value or "").lower()
+    except Exception:
+        return ""
+
+
+def _calculate_missed_logs(student_profile: Optional[StudentProfile], logs: List[DailyLog]) -> int:
+    """Count past working days in SIWES window that have no submitted log."""
+    if not student_profile or not student_profile.siwes_start_date or not student_profile.siwes_end_date:
+        return 0
+
+    today = date.today()
+    period_start = student_profile.siwes_start_date
+    period_end = min(student_profile.siwes_end_date, today - timedelta(days=1))
+    if period_end < period_start:
+        return 0
+
+    logged_dates = {log.log_date for log in logs}
+    cursor = period_start
+    missed = 0
+    while cursor <= period_end:
+        if cursor.weekday() < 5 and cursor not in logged_dates:
+            missed += 1
+        cursor += timedelta(days=1)
+    return missed

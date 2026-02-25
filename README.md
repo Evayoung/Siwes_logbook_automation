@@ -197,6 +197,7 @@ SECRET_KEY=your-super-secret-key-change-this
 # Application
 DEBUG=True
 ENVIRONMENT=development
+CALL_RING_TIMEOUT_SECONDS=75
 
 # Server
 HOST=0.0.0.0
@@ -237,7 +238,7 @@ siwes-logbook-automation/
 │   │   ├── repositories/     # Data access layer
 │   │   └── security/         # Password, session management
 │   ├── presentation/         # Presentation layer
-│   │   ├── assets/           # sync_manager.js, styles.css
+│   │   ├── assets/           # CSS, PWA/service-worker, notification scripts
 │   │   ├── components/       # UI components
 │   │   │   ├── domain/       # Student & Supervisor components
 │   │   │   └── ui/           # Layouts, navigation

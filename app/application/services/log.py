@@ -20,10 +20,11 @@ Example:
 
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime
+import uuid
 from sqlalchemy.orm import Session
 
-from app.domain.models.log import DailyLog, LogStatus, LocationStatus
-from app.domain.models.placement import IndustrialPlacement
+from app.domain.models.log import DailyLog, LogStatus
+from app.domain.models.user import StudentProfile
 from app.infrastructure.repositories.log import LogRepository
 from app.infrastructure.repositories.placement import PlacementRepository
 from app.infrastructure.services.geofence import GeofenceService
@@ -62,7 +63,7 @@ class LogService:
         student_id: str,
         placement_id: str,
         log_date: date,
-        activities: str,
+        activity_description: str,
         latitude: float,
         longitude: float,
         client_uuid: Optional[str] = None,
@@ -75,7 +76,7 @@ class LogService:
             student_id: Student's user ID
             placement_id: Placement ID
             log_date: Date of the log
-            activities: Description of activities performed
+            activity_description: Description of activities performed
             latitude: GPS latitude where log was created
             longitude: GPS longitude where log was created
             client_uuid: Optional client-generated UUID for offline sync
@@ -93,11 +94,15 @@ class LogService:
             ...     student_id=student.id,
             ...     placement_id=placement.id,
             ...     log_date=date.today(),
-            ...     activities="Worked on API development",
+            ...     activity_description="Worked on API development",
             ...     latitude=6.5244,
             ...     longitude=3.3792
             ... )
         """
+        # Ensure a UUID exists (required by model and used for idempotency).
+        if not client_uuid:
+            client_uuid = str(uuid.uuid4())
+
         # Check for duplicate client_uuid (offline sync idempotency)
         if client_uuid:
             existing_log = self.log_repo.get_by_client_uuid(client_uuid)
@@ -115,7 +120,7 @@ class LogService:
             raise ValueError("Invalid GPS coordinates")
         
         # Calculate week number
-        week_number = self._calculate_week_number(log_date, placement)
+        week_number = self._calculate_week_number(log_date, student_id)
         
         if week_number < 1 or week_number > 25:
             raise ValueError(f"Log date is outside SIWES period (week {week_number})")
@@ -133,14 +138,12 @@ class LogService:
             "placement_id": placement_id,
             "log_date": log_date,
             "week_number": week_number,
-            "activities": activities,
-            "skills_learned": skills_learned,
-            "challenges": challenges,
+            "activity_description": activity_description,
             "latitude": latitude,
             "longitude": longitude,
             "location_status": location_status,
             "status": LogStatus.PENDING_REVIEW,
-            "is_synced": True if not client_uuid else False,
+            "synced_at": datetime.utcnow(),
             "client_uuid": client_uuid
         }
         
@@ -226,7 +229,7 @@ class LogService:
         Example:
             >>> log = service.update_log(
             ...     log_id=log.id,
-            ...     updates={"activities": "Updated activities"}
+            ...     updates={"activity_description": "Updated activities"}
             ... )
         """
         # Get existing log
@@ -287,23 +290,28 @@ class LogService:
     def _calculate_week_number(
         self,
         log_date: date,
-        placement: IndustrialPlacement
+        student_id: str
     ) -> int:
         """Calculate the week number for a log date.
         
         Args:
             log_date: Date of the log
-            placement: Industrial placement instance
+            student_id: Student user ID
         
         Returns:
             Week number (1-25)
         
         Note:
-            - Week 1 starts on placement.start_date
+            - Week 1 starts on student's SIWES start date
             - Each week is 7 days
             - Returns week number even if outside valid range
         """
-        days_since_start = (log_date - placement.start_date).days
+        profile = self.db.query(StudentProfile).filter(
+            StudentProfile.user_id == student_id
+        ).first()
+        if not profile:
+            raise ValueError("Student profile not found")
+        days_since_start = (log_date - profile.siwes_start_date).days
         week_number = (days_since_start // 7) + 1
         
         return week_number

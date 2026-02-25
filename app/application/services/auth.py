@@ -20,6 +20,7 @@ Example:
 """
 
 from typing import Optional, Dict, Any
+from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.domain.models.user import User, UserRole
@@ -57,9 +58,11 @@ class AuthService:
         email: str,
         password: str,
         full_name: str,
-        matric_number: str,
+        matriculation_number: str,
         department: str,
-        level: int,
+        institution: str = "University of Lagos",
+        siwes_start_date: Optional[date] = None,
+        siwes_end_date: Optional[date] = None,
         phone_number: Optional[str] = None
     ) -> User:
         """Register a new student user.
@@ -68,9 +71,11 @@ class AuthService:
             email: Student's email address
             password: Plain text password (will be hashed)
             full_name: Student's full name
-            matric_number: Student's matriculation number
+            matriculation_number: Student's matriculation number
             department: Student's department
-            level: Student's current level (e.g., 400)
+            institution: Student's institution
+            siwes_start_date: SIWES start date
+            siwes_end_date: SIWES end date
             phone_number: Optional phone number
         
         Returns:
@@ -84,9 +89,9 @@ class AuthService:
             ...     email="student@university.edu",
             ...     password="secure_password",
             ...     full_name="John Doe",
-            ...     matric_number="CSC/2020/001",
+            ...     matriculation_number="CSC/2020/001",
             ...     department="Computer Science",
-            ...     level=400
+            ...     institution="University of Lagos"
             ... )
         """
         # Check if email already exists
@@ -106,14 +111,15 @@ class AuthService:
             "password_hash": password_hash,
             "full_name": full_name,
             "role": UserRole.STUDENT,
-            "phone_number": phone_number
         }
         
         # Prepare student profile data
         profile_data = {
-            "matric_number": matric_number,
+            "matriculation_number": matriculation_number,
             "department": department,
-            "level": level
+            "institution": institution,
+            "siwes_start_date": siwes_start_date or date.today(),
+            "siwes_end_date": siwes_end_date or (date.today() + timedelta(weeks=25)),
         }
         
         # Create user with profile
@@ -126,7 +132,7 @@ class AuthService:
         email: str,
         password: str,
         full_name: str,
-        department: str,
+        faculty: str,
         staff_id: str,
         phone_number: Optional[str] = None
     ) -> User:
@@ -136,7 +142,7 @@ class AuthService:
             email: Supervisor's email address
             password: Plain text password (will be hashed)
             full_name: Supervisor's full name
-            department: Supervisor's department
+            faculty: Supervisor's faculty
             staff_id: Supervisor's staff ID
             phone_number: Optional phone number
         
@@ -151,7 +157,7 @@ class AuthService:
             ...     email="supervisor@university.edu",
             ...     password="secure_password",
             ...     full_name="Dr. Jane Smith",
-            ...     department="Computer Science",
+            ...     faculty="Faculty of Science",
             ...     staff_id="STAFF001"
             ... )
         """
@@ -172,12 +178,11 @@ class AuthService:
             "password_hash": password_hash,
             "full_name": full_name,
             "role": UserRole.SUPERVISOR,
-            "phone_number": phone_number
         }
         
         # Prepare supervisor profile data
         profile_data = {
-            "department": department,
+            "faculty": faculty,
             "staff_id": staff_id
         }
         
@@ -290,7 +295,7 @@ class AuthService:
         Example:
             >>> user = service.get_user_with_profile(user_id)
             >>> if user.role == UserRole.STUDENT:
-            ...     print(user.student_profile.matric_number)
+            ...     print(user.student_profile.matriculation_number)
         """
         return self.user_repo.get_user_with_profile(user_id)
     
@@ -328,7 +333,7 @@ class AuthService:
         if "full_name" in profile_data:
             user_fields["full_name"] = profile_data.pop("full_name")
         if "phone_number" in profile_data:
-            user_fields["phone_number"] = profile_data.pop("phone_number")
+            profile_data.pop("phone_number")
         
         if user_fields:
             self.user_repo.update(user_id, user_fields)

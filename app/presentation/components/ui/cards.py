@@ -138,7 +138,9 @@ def LogEntryCard(
                 cls="d-flex align-items-center"
             )
         ),
-        onclick=f"window.location.href='/student/logbook/{log_id}'",
+        hx_get="/student/logbook",
+        hx_target="body",
+        hx_push_url="true",
         cls="mb-3 cursor-pointer hover-shadow"
     )
 
@@ -196,8 +198,8 @@ def StudentCard(
         
         # Action buttons
         Div(
-            A("View Logs", href=f"/supervisor/students/{student_id}/logs", cls="btn btn-sm btn-outline-primary me-2"),
-            A("Message", href=f"/supervisor/chat?student={student_id}", cls="btn btn-sm btn-outline-secondary"),
+            A("View Logs", href="/supervisor/logs", cls="btn btn-sm btn-outline-primary me-2"),
+            A("Message", href=f"/supervisor/communication?student_id={student_id}", cls="btn btn-sm btn-outline-secondary"),
             cls="d-flex"
         )
     )
@@ -250,6 +252,8 @@ def WeekGridCell(
         Div(icon, cls="fs-4 my-1") if icon else "",
         Div(log_date.strftime("%d") if log_date else "", cls="small"),
         cls=cell_class,
-        onclick=f"window.location.href='/student/logbook/{log_id}'" if has_log and log_id else "",
+        hx_get="/student/logbook" if has_log and log_id else None,
+        hx_target="body" if has_log and log_id else None,
+        hx_push_url="true" if has_log and log_id else None,
         style="cursor: pointer;" if has_log else ""
     )
