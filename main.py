@@ -97,8 +97,16 @@ from app.presentation.routes.chat import register_chat_routes
 register_chat_routes(app)
 from app.presentation.routes.student import setup_student_routes
 setup_student_routes(app)
+from app.presentation.routes.notifications import register_notification_routes
+register_notification_routes(app)
+from app.presentation.routes.calls import register_call_routes
+register_call_routes(app)
+from app.presentation.routes.chat import register_chat_routes
+register_chat_routes(app)
 from app.presentation.routes.supervisor import setup_supervisor_routes
 setup_supervisor_routes(app)
+from app.presentation.routes.calls import register_call_routes
+register_call_routes(app)
 
 
 # Health check endpoint

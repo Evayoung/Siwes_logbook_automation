@@ -411,7 +411,7 @@ def setup_supervisor_routes(app: FastHTML):
             db: Database session
         
         Returns:
-            Communication HTML
+            Communication HTML or HTMX partial
         """
         tab = "calls" if tab == "calls" else "chat"
         from app.presentation.components.domain.supervisor.communication import SupervisorCommunicationPage
