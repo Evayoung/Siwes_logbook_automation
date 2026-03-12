@@ -1,9 +1,11 @@
 // SSE Notification Listener for Call Notifications
 (function () {
     let eventSource = null;
+    let reconnectTimer = null;
     let currentCallId = null;
     let notificationMenuOpen = false;
     let olderLoadSnapshot = null;
+    const recentEventKeys = new Map();
 
     function showToast(message, variant = 'info') {
         const map = {
@@ -51,7 +53,57 @@
     }
     window.scrollChatToBottom = () => scrollChatToBottom(true);
 
+    function isDuplicateEvent(data) {
+        try {
+            const key = [
+                data.type || '',
+                data.call_id || '',
+                data.status || '',
+                data.student_id || '',
+                data.sender_id || '',
+                data.log_date || '',
+                data.message || '',
+                data.time || ''
+            ].join('|');
+            const now = Date.now();
+            const last = recentEventKeys.get(key) || 0;
+            if ((now - last) < 8000) return true;
+            recentEventKeys.set(key, now);
+            for (const [k, ts] of recentEventKeys.entries()) {
+                if ((now - ts) > 30000) recentEventKeys.delete(k);
+            }
+        } catch (_) {}
+        return false;
+    }
+
+    function clearReconnectTimer() {
+        if (!reconnectTimer) return;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+
+    function scheduleSseReconnect() {
+        if (!navigator.onLine) return;
+        if (reconnectTimer) return;
+        reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            window.__siwesSseInitialized = false;
+            initializeSSE();
+        }, 3000);
+    }
+
+    function closeSSE() {
+        clearReconnectTimer();
+        if (eventSource) {
+            try { eventSource.close(); } catch (_) {}
+        }
+        eventSource = null;
+        window.eventSource = null;
+        window.__siwesSseInitialized = false;
+    }
+
     function initializeSSE() {
+        if (!navigator.onLine) return;
         if (window.__siwesSseInitialized) return;
         window.__siwesSseInitialized = true;
 
@@ -60,6 +112,7 @@
         window.eventSource = eventSource;
 
         eventSource.onopen = function () {
+            clearReconnectTimer();
             console.log('[SSE] Connected to notification stream');
         };
 
@@ -67,6 +120,7 @@
             try {
                 const data = JSON.parse(event.data);
                 console.log('[SSE] Received event:', data);
+                if (isDuplicateEvent(data)) return;
 
                 // Handle different event types
                 switch (data.type) {
@@ -105,17 +159,13 @@
 
         eventSource.onerror = function (error) {
             console.error('[SSE] Connection error:', error);
-            // Attempt to reconnect after 5 seconds
-            setTimeout(() => {
-                console.log('[SSE] Attempting to reconnect...');
-                eventSource.close();
-                window.__siwesSseInitialized = false;
-                initializeSSE();
-            }, 5000);
+            closeSSE();
+            scheduleSseReconnect();
         };
     }
 
     async function refreshNotificationBell() {
+        if (!navigator.onLine) return;
         const countEl = document.getElementById('topbar-notification-count');
         const listEl = document.getElementById('topbar-notification-list');
         if (!countEl || !listEl) return;
@@ -240,20 +290,42 @@
         if (!badge || !textEl) return;
 
         const iconHtml = (online) => `<i class="bi ${online ? 'bi-wifi' : 'bi-wifi-off'} me-2"></i>`;
+        const updateQueueText = (online) => {
+            let queued = 0;
+            let enabled = false;
+            try {
+                queued = Number(localStorage.getItem('siwes_offline_queue_count') || '0');
+                enabled = localStorage.getItem('siwes_offline_mode_enabled') === '1';
+            } catch (_) {
+                queued = 0;
+                enabled = false;
+            }
+            if (online) {
+                textEl.textContent = queued > 0 ? `Online - ${queued} queued` : 'Online';
+                return;
+            }
+            if (queued > 0) {
+                textEl.textContent = `Offline - ${queued} queued`;
+                return;
+            }
+            textEl.textContent = enabled ? 'Offline - cached mode' : 'Offline';
+        };
         const update = () => {
             const online = navigator.onLine;
             badge.classList.toggle('offline', !online);
-            textEl.textContent = online ? 'Online' : 'Offline';
             badge.querySelector('i')?.remove();
             badge.insertAdjacentHTML('afterbegin', iconHtml(online));
+            updateQueueText(online);
         };
 
         update();
         window.addEventListener('online', update);
         window.addEventListener('offline', update);
+        window.addEventListener('siwes-offline-state', update);
     }
 
     function handleIncomingCall(data) {
+        if (!navigator.onLine) return;
         console.log('[CALL] Incoming call from:', data.caller_name);
         refreshNotificationBell();
 
@@ -287,22 +359,16 @@
             backdrop.classList.add('show');
         }, 10);
 
-        // Configure HTMX actions dynamically for this call.
+        // Configure actions dynamically for this call.
         const acceptBtn = document.getElementById('accept-call-btn');
         const declineBtn = document.getElementById('decline-call-btn');
         if (acceptBtn) {
-            acceptBtn.setAttribute('hx-post', `/api/calls/${currentCallId}/accept`);
-            acceptBtn.setAttribute('hx-target', 'body');
-            acceptBtn.setAttribute('hx-swap', 'none');
             acceptBtn.removeAttribute('disabled');
-            if (window.htmx) window.htmx.process(acceptBtn);
+            acceptBtn.onclick = () => submitCallAction('accept');
         }
         if (declineBtn) {
-            declineBtn.setAttribute('hx-post', `/api/calls/${currentCallId}/decline`);
-            declineBtn.setAttribute('hx-target', 'body');
-            declineBtn.setAttribute('hx-swap', 'none');
             declineBtn.removeAttribute('disabled');
-            if (window.htmx) window.htmx.process(declineBtn);
+            declineBtn.onclick = () => submitCallAction('decline');
         }
 
         // Play notification sound (optional)
@@ -310,17 +376,65 @@
     }
 
     function handleCallCancelled(data) {
+        if (!navigator.onLine) return;
         console.log('[CALL] Call cancelled');
         hideCallModal();
         refreshNotificationBell();
     }
 
     function handleCallAccepted(data) {
+        if (!navigator.onLine) return;
         console.log('[CALL] Call accepted, redirecting...');
         window.location.href = data.redirect_url;
     }
 
+    async function submitCallAction(action) {
+        if (!currentCallId) return;
+        const acceptBtn = document.getElementById('accept-call-btn');
+        const declineBtn = document.getElementById('decline-call-btn');
+        if (acceptBtn) acceptBtn.setAttribute('disabled', 'disabled');
+        if (declineBtn) declineBtn.setAttribute('disabled', 'disabled');
+
+        const endpoint = action === 'accept'
+            ? `/api/calls/${currentCallId}/accept`
+            : `/api/calls/${currentCallId}/decline`;
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' },
+            });
+
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (_) {}
+
+            if (!response.ok) {
+                throw new Error(data.error || `Failed to ${action} call`);
+            }
+
+            if (action === 'accept') {
+                if (data.redirect_url) {
+                    window.location.href = data.redirect_url;
+                    return;
+                }
+                throw new Error('Call accepted but no redirect URL was returned');
+            }
+
+            hideCallModal();
+            refreshNotificationBell();
+        } catch (error) {
+            console.error('[CALL] Action failed:', error);
+            alert(error.message || `Unable to ${action} call`);
+            if (acceptBtn) acceptBtn.removeAttribute('disabled');
+            if (declineBtn) declineBtn.removeAttribute('disabled');
+        }
+    }
+
     function handleNewMessage(data) {
+        if (!navigator.onLine) return;
         const activeRecipientInput = document.querySelector('input[name="recipient_id"]');
         const activeRecipientId = activeRecipientInput ? activeRecipientInput.value : null;
         const senderId = data.sender_id || null;
@@ -350,15 +464,17 @@
     }
 
     function handleLogSubmitted(data) {
+        if (!navigator.onLine) return;
         refreshNotificationBell();
         showToast(`${data.student_name || 'A student'} submitted a new log.`, 'info');
         const path = window.location.pathname || '';
-        if (path.startsWith('/supervisor/logs') || path.startsWith('/supervisor/dashboard')) {
+        if (navigator.onLine && (path.startsWith('/supervisor/logs') || path.startsWith('/supervisor/dashboard'))) {
             setTimeout(() => window.location.reload(), 600);
         }
     }
 
     function handleLogReviewed(data) {
+        if (!navigator.onLine) return;
         refreshNotificationBell();
         const status = String(data.status || '').toLowerCase();
         if (status === 'verified') showToast('Your log was verified.', 'success');
@@ -366,7 +482,7 @@
         else showToast(data.message || 'Your log was reviewed.', 'info');
 
         const path = window.location.pathname || '';
-        if (path.startsWith('/student/dashboard') || path.startsWith('/student/logbook')) {
+        if (navigator.onLine && (path.startsWith('/student/dashboard') || path.startsWith('/student/logbook'))) {
             setTimeout(() => window.location.reload(), 600);
         }
     }
@@ -453,17 +569,6 @@
             }
         });
 
-        document.body.addEventListener('htmx:beforeRequest', function (event) {
-            const elt = event.detail && event.detail.elt;
-            if (!elt) return;
-            if (elt.id === 'accept-call-btn' || elt.id === 'decline-call-btn') {
-                const acceptBtn = document.getElementById('accept-call-btn');
-                const declineBtn = document.getElementById('decline-call-btn');
-                if (acceptBtn) acceptBtn.setAttribute('disabled', 'disabled');
-                if (declineBtn) declineBtn.setAttribute('disabled', 'disabled');
-            }
-        });
-
         document.body.addEventListener('call_declined', function () {
             hideCallModal();
         });
@@ -483,14 +588,16 @@
         document.body.addEventListener('log_save_result', function (event) {
             const detail = event && event.detail ? event.detail : {};
             const ok = !!detail.ok;
+            const queued = !!detail.queued;
             const message = detail.message || (ok ? 'Log saved.' : 'Failed to save log.');
-            showToast(message, ok ? 'success' : 'danger');
+            showToast(message, ok ? (queued ? 'info' : 'success') : 'danger');
             if (!ok) return;
             const modalEl = document.getElementById('logModal');
             if (modalEl && window.bootstrap && window.bootstrap.Modal) {
                 const modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
                 modal.hide();
             }
+            if (queued) return;
             setTimeout(() => window.location.reload(), 700);
         });
 
@@ -515,6 +622,20 @@
         refreshNotificationBell();
         // Initialize SSE connection
         initializeSSE();
+        
+        // Close SSE before any HTMX navigation
+        document.body.addEventListener('htmx:beforeNavigate', function () {
+            console.log('[SSE] Closing connection before navigation');
+            closeSSE();
+        });
+        
+        window.addEventListener('offline', function () {
+            closeSSE();
+        });
+        window.addEventListener('online', function () {
+            refreshNotificationBell();
+            initializeSSE();
+        });
         setTimeout(() => scrollChatToBottom(true), 30);
     });
 })();

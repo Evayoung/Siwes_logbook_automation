@@ -4,13 +4,20 @@ from fasthtml.common import *
 from faststrap import Card, Button, Icon, Row, Col, Badge, Alert
 
 
-def ProfileHeader(user_name: str, email: str, matric_no: str, department: str) -> FT:
+def _initials(name: str) -> str:
+    parts = [p for p in (name or "").split() if p]
+    if not parts:
+        return "--"
+    return "".join(p[0] for p in parts[:2]).upper()
+
+
+def ProfileHeader(user_name: str, email: str, matric_no: str, department: str, avatar_text: str | None = None) -> FT:
     """Header card with user avatar and basic info."""
     return Card(
         Div(
             # Avatar
             Div(
-                "J",
+                avatar_text or _initials(user_name),
                 cls="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center fw-bold me-4",
                 style="width: 80px; height: 80px; font-size: 2rem;"
             ),
@@ -260,14 +267,25 @@ def StudentProfilePage(user: dict = None, placement: dict = None, settings: dict
         ),
         
         # Header
-        ProfileHeader(user["name"], user["email"], user["matric"], user["dept"]),
+        ProfileHeader(
+            user["name"],
+            user["email"],
+            user["matric"],
+            user["dept"],
+            avatar_text=user.get("avatar_text"),
+        ),
         
         # Content Grid
         PersonalInfoCard(user["name"], user["matric"], user["dept"], user["inst"]),
         
         PlacementDetailsCard(placement["company"], placement["address"], placement["supervisor"], placement["radius"]),
         
-        DurationCard(user.get("start", "--"), user.get("end", "--"), 24, 6), # Fixed duration calc for now
+        DurationCard(
+            user.get("start", "--"),
+            user.get("end", "--"),
+            int(user.get("weeks", 0)),
+            int(user.get("months", 0)),
+        ),
         
         SettingsCard(settings=settings),
         

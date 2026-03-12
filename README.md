@@ -1,127 +1,217 @@
-# 🎓 SIWES Logbook Automation System
+# SIWES Logbook Automation System
 
-> **An Offline-First, Location-Verified Digital Logbook Platform for Industrial Training**
+![Project Banner](docs/screenshots/student_dashboard.png)
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastHTML](https://img.shields.io/badge/FastHTML-0.6.0+-green.svg)](https://fastht.ml/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-blue.svg)](https://www.postgresql.org/)
+An offline-first, location-verified digital logbook platform for Student Industrial Work Experience Scheme (SIWES) management, built with FastHTML and Faststrap for Anchor University Computer Science students.
 
 ---
 
-## 📖 Overview
+## Table of Contents
 
-The **SIWES Logbook Automation System** addresses three critical problems in the current Student Industrial Work Experience Scheme (SIWES) management:
+- [Overview](#overview)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
+- [Screenshots](#screenshots)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
 
-### 1. **The Verification Gap** (Geographical Accountability)
+---
+
+## Overview
+
+The **SIWES Logbook Automation System** is a comprehensive solution for managing the Student Industrial Work Experience Scheme (SIWES) program. It addresses three critical challenges in industrial training management:
+
+### 1. The Verification Gap (Geographical Accountability)
+
 **Problem**: Supervisors cannot verify if students are actually at their workplace, leading to "ghosting" or "back-filling" of logs from home.
 
 **Solution**: **Geofencing** captures GPS coordinates at the moment of entry, ensuring data is only valid if the student is physically within the company's designated radius.
 
-### 2. **Administrative Latency** (Communication Bottlenecks)
+### 2. Administrative Latency (Communication Bottlenecks)
+
 **Problem**: Traditional paper logbooks create a "black hole" where supervisors have zero visibility into student progress for months.
 
 **Solution**: **Real-time Chat and Video Consultation** eliminate wait time between student queries and supervisor responses, allowing immediate intervention.
 
-### 3. **Network Instability and Data Loss** (The "Offline" Problem)
+### 3. Network Instability and Data Loss (The "Offline" Problem)
+
 **Problem**: Standard web applications fail in remote industrial sites with poor network coverage, forcing students to revert to paper.
 
 **Solution**: **Progressive Web App (PWA)** with Service Workers stays functional without internet. Students save logs to local cache (IndexedDB), and the system automatically syncs to the database when network is restored.
 
 ---
 
-## 🎯 Project Objectives
+## Features
 
-### Aim
-Design and implement a secure, offline-capable SIWES management portal that uses **location-based validation** and **video-enabled supervision** to improve the integrity of industrial training.
+### Core Features
 
-### Specific Objectives
-1. ✅ Review existing SIWES systems to identify technical gaps
-2. ✅ Design and implement a web portal for university students and supervisors
-3. 🚧 Test and evaluate performance, usability, and reliability
-
----
-
-## 👥 Target Users
-
-### University Students (Trainees)
-- Document daily technical activities for 25 weeks
-- Perform location-validated check-ins
-- Participate in video consultations with university supervisors
-
-### Institutional (University) Supervisors
-- Remotely monitor student progress
-- Verify log integrity via geofencing data
-- Conduct virtual site visits through integrated communication
-
----
-
-## 🚀 Core Functionalities
-
-### ✅ Implemented
-
-#### 1. **Geofencing & Location Validation**
+#### 1. Geofencing & Location Validation
 - GPS coordinate capture at log entry creation
 - Comparison with registered industry location
 - Visual status indicators (Within/Outside geofence)
 - Haversine distance calculation for accuracy
 
-#### 2. **Offline-First Architecture**
+#### 2. Offline-First Architecture
 - **IndexedDB** for local log storage when offline
 - **Service Worker** for asset caching
 - **Background Sync** for automatic data transfer to server
 - **Client-side UUID** generation for deduplication
 
-#### 3. **25-Week Logbook System**
+#### 3. 25-Week Logbook System
 - Weekly calendar grid (Monday-Friday)
 - Status tracking (Verified, Pending, Flagged)
 - Filter tabs (All Weeks, This Week, Pending Review)
 - Real-time character counter (500 char limit)
 
-#### 4. **Communication Module**
-- Real-time chat interface (UI ready)
+#### 4. Communication Module
+- Real-time chat interface
 - Call history tracking
-- Video consultation interface (UI ready)
+- Video consultation interface
 - Supervisor-student messaging
 
-#### 5. **Supervisor Dashboard**
+#### 5. Supervisor Dashboard
 - Student log review interface
 - Bulk verification workflows
-- Geofencing map view (UI ready)
+- Geofencing map view
 - Filter by status (All, Pending, Verified, Flagged)
 
-### 🚧 In Progress
-
-#### 1. **WebRTC Video Integration**
-- Peer-to-peer video calling
-- Socket.io signaling server
-- Network quality adaptation
-
-#### 2. **Real-time Communication**
-- WebSocket integration for live chat
-- Push notifications for messages
-- Online/offline status indicators
-
-#### 3. **Geofencing Map**
-- Interactive map with Leaflet.js
-- Visual radius drawing
-- Multi-location support per student
+#### 6. Student Dashboard
+- Current week overview
+- Verified logs count
+- Pending reviews count
+- Active hours tracking
 
 ---
 
-## 💻 Technology Stack
+## Architecture
+
+### System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Presentation Layer                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │   Routes     │  │  Components  │  │   Layouts    │    │
+│  │ (FastHTML)   │  │ (Faststrap)  │  │  (Navbar)    │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      Domain Layer                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │   Services   │  │    Models    │  │  Algorithms  │    │
+│  │ (Business)   │  │ (SQLAlchemy) │  │ (Geofence)  │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   Infrastructure Layer                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │   Database   │  │   Security   │  │     PWA      │    │
+│  │ (PostgreSQL) │  │  (Session)  │  │ (SW/IndexedDB│    │
+│  └──────────────┘  └──────────────┘  └──────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Database Schema
+
+```mermaid
+erDiagram
+    User ||--o{ Log : creates
+    User ||--o{ Placement : has
+    Placement ||--o{ Log : "recorded in"
+    Placement ||--o{ Geofence : has
+    Supervisor ||--o{ Student : supervises
+    User ||--o{ Message : sends
+    
+    User {
+        uuid id PK
+        string email
+        string password_hash
+        string full_name
+        enum role
+        boolean is_active
+    }
+    
+    Placement {
+        uuid id PK
+        uuid student_id FK
+        string company_name
+        string company_address
+        string company_lat
+        string company_lng
+        float geofence_radius
+        date start_date
+        date end_date
+        enum status
+    }
+    
+    Geofence {
+        uuid id PK
+        uuid placement_id FK
+        string center_lat
+        string center_lng
+        float radius_meters
+        boolean is_active
+    }
+    
+    Log {
+        uuid id PK
+        uuid student_id FK
+        uuid placement_id FK
+        date log_date
+        string day_of_week
+        text activity_description
+        string skills_acquired
+        enum status
+        string latitude
+        string longitude
+        float distance_from_site
+        string supervisor_comment
+        datetime created_at
+        datetime updated_at
+    }
+    
+    Message {
+        uuid id PK
+        uuid sender_id FK
+        uuid receiver_id FK
+        text content
+        boolean is_read
+        datetime created_at
+    }
+    
+    Call {
+        uuid id PK
+        uuid caller_id FK
+        uuid receiver_id FK
+        enum call_type
+        int duration_seconds
+        datetime started_at
+        datetime ended_at
+    }
+```
+
+---
+
+## Technology Stack
 
 ### Backend
-- **FastHTML** - Python web framework with HTMX
-- **SQLAlchemy 2.0** - ORM with PostgreSQL
-- **PostgreSQL 14+** - Relational database
+- **FastHTML** - Modern Python web framework
+- **Faststrap** - Bootstrap components for FastHTML
+- **SQLAlchemy** - ORM for database operations
+- **PostgreSQL** - Primary database
 - **Pydantic** - Data validation
 - **Uvicorn** - ASGI server
 
 ### Frontend
-- **HTMX** - Dynamic interactions without heavy JavaScript
-- **Faststrap** - Bootstrap 5 components for FastHTML
-- **Vanilla JavaScript** - PWA features (Service Worker, IndexedDB)
-- **Bootstrap 5** - Responsive UI framework
+- **HTMX** - Dynamic HTML updates
+- **Bootstrap 5** - UI framework
+- **Faststrap** - Pre-built Bootstrap components
+- **Bootstrap Icons** - Icon library
 
 ### PWA Features
 - **Service Worker** - Offline asset caching
@@ -129,280 +219,313 @@ Design and implement a secure, offline-capable SIWES management portal that uses
 - **Web App Manifest** - Installable app metadata
 - **Background Sync API** - Automatic synchronization
 
+### Development Tools
+- **Python 3.10+**
+- **pip** - Package manager
+- **Git** - Version control
+
 ---
 
-## 📦 Setup Guide
+## Screenshots
+
+### Landing Page
+![Landing Page](docs/screenshots/student_dashboard.png)
+*Modern landing page with dashboard preview*
+
+### Login Screen
+![Login](docs/screenshots/login.png)
+*Clean authentication interface*
+
+### Student Dashboard
+![Student Dashboard](docs/screenshots/student_dashboard.png)
+*Personal metrics and quick actions*
+
+### Daily Logbook
+![Logbook](docs/screenshots/logbook.png)
+*25-week calendar grid with status tracking*
+
+### Supervisor Dashboard
+![Supervisor Dashboard](docs/screenshots/supervisor_dashboard.png)
+*Student overview and log review*
+
+---
+
+## Installation
 
 ### Prerequisites
 
-1. **Python 3.10+** - [Download](https://www.python.org/downloads/)
-   - ⚠️ Check "Add Python to PATH" during installation
+Before installing, ensure you have the following:
 
-2. **PostgreSQL 14+** - [Download](https://www.postgresql.org/download/)
-   - Remember the `postgres` user password
+1. **Python 3.10 or higher**
+   - Download: [https://www.python.org/downloads/](https://www.python.org/downloads/)
+   - During installation, check "Add Python to PATH"
 
-3. **VS Code** (Recommended) - [Download](https://code.visualstudio.com/)
+2. **PostgreSQL 14 or higher**
+   - Download: [https://www.postgresql.org/download/](https://www.postgresql.org/download/)
+   - Remember your postgres password during installation
 
-### Installation Steps
+3. **Git** (optional, for cloning)
+   - Download: [https://git-scm.com/downloads](https://git-scm.com/downloads)
 
-#### 1. Database Setup
+### Step 1: Download the Project
 
-Open **pgAdmin 4** or terminal:
-
-```bash
-psql -U postgres
-CREATE DATABASE siwes_db;
-\q
-```
-
-#### 2. Clone Repository
-
+**Option A: Using Git**
 ```bash
 git clone <repository-url>
 cd siwes-logbook-automation
 ```
 
-#### 3. Create Virtual Environment
+**Option B: Download ZIP**
+1. Download the project ZIP file
+2. Extract to your desired location
+3. Open terminal/command prompt in the extracted folder
 
-**Windows:**
+### Step 2: Set Up Python Environment
+
 ```bash
+# Create virtual environment
 python -m venv venv
-.\venv\Scripts\activate
-```
 
-**macOS/Linux:**
-```bash
-python3 -m venv venv
+# Activate virtual environment
+# On Windows:
+venv\Scripts\activate
+
+# On macOS/Linux:
 source venv/bin/activate
 ```
 
-#### 4. Install Dependencies
+### Step 3: Install Dependencies
 
 ```bash
-pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### 5. Environment Configuration
+### Step 4: Configure PostgreSQL Database
 
-Create `.env` file:
+#### 4.1 Create Database
 
-```ini
-# Database
-DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/siwes_db
+Open PostgreSQL command line (psql) or pgAdmin and run:
+
+```sql
+CREATE DATABASE siwes_db;
+CREATE USER siwes_user WITH PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE siwes_db TO siwes_user;
+```
+
+#### 4.2 Configure Environment Variables
+
+Create a `.env` file in the project root (copy from `.env.example`):
+
+```env
+# Database Configuration
+DATABASE_URL=postgresql://siwes_user:your_secure_password@localhost:5432/siwes_db
 
 # Security
-SECRET_KEY=your-super-secret-key-change-this
+SECRET_KEY=your-secret-key-here-change-in-production
 
 # Application
 DEBUG=True
 ENVIRONMENT=development
-CALL_RING_TIMEOUT_SECONDS=75
 
 # Server
 HOST=0.0.0.0
-PORT=5001
+PORT=5031
 ```
 
-#### 6. Initialize Database
+### Step 5: Initialize Database
 
 ```bash
-python reset_db.py
+python scripts/reset_db.py
 ```
 
-**Test Credentials:**
-- Student: `student@example.com` / `password`
-- Supervisor: `supervisor@example.com` / `password`
+You should see:
+```
+[*] Initializing database...
+[SUCCESS] Database initialized successfully!
+```
 
-#### 7. Run Application
+### Step 6: Seed Database
+
+```bash
+python scripts/seed_real_data.py
+```
+
+Expected output:
+```
+[*] Seeding database...
+[+] Creating students...
+[+] Creating supervisors...
+[SUCCESS] Database seeded successfully!
+```
+
+### Step 7: Run the Application
 
 ```bash
 python main.py
 ```
 
-Visit: http://localhost:5001
+The application will start on `http://localhost:5031`
+
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:5031
+INFO:     Application startup complete.
+```
+
+### Step 8: Access the Application
+
+Open your browser and navigate to:
+- **Landing Page**: http://localhost:5031
+- **Login**: http://localhost:5031/login
+- **Health Check**: http://localhost:5031/health
 
 ---
 
-## 📁 Project Structure
+## Usage
+
+### Student Workflow
+
+1. **Login** with student credentials
+2. **Dashboard**: View current week stats, verified logs, pending reviews
+3. **Logbook**: 
+   - Navigate through 25-week calendar
+   - Click on a day to add log entry
+   - Enter activity description and skills acquired
+   - System captures GPS location automatically
+4. **Communication**:
+   - Chat with supervisor
+   - View call history
+   - Request video consultation
+5. **Profile**: Update personal information and view placement details
+
+### Supervisor Workflow
+
+1. **Login** with supervisor credentials
+2. **Dashboard**: View assigned students overview
+3. **Logs**: Review student submissions
+   - Filter by status (All, Pending, Verified, Flagged)
+   - View GPS verification data
+   - Add comments and approve/flag entries
+4. **Geofencing**: View student location verification
+5. **Communication**:
+   - Chat with students
+   - Initiate video calls
+
+### Offline Mode
+
+When network is unavailable:
+1. Student logs are saved to IndexedDB
+2. Logs display "Pending Sync" status
+3. When connection restores, data syncs automatically
+4. Duplicate detection prevents data loss
+
+---
+
+## Project Structure
 
 ```
 siwes-logbook-automation/
 ├── app/
-│   ├── application/          # Business logic
-│   │   └── services/         # Auth, Log, Sync, Geofence services
-│   ├── domain/               # Domain models
-│   │   └── models/           # User, Log, Placement, Geofence
-│   ├── infrastructure/       # Infrastructure layer
-│   │   ├── database/         # Connection, middleware
+│   ├── application/
+│   │   └── services/         # Business logic
+│   │       ├── auth.py       # Authentication service
+│   │       ├── log.py        # Log management
+│   │       ├── geofence.py   # Location validation
+│   │       ├── sync.py       # Offline sync
+│   │       └── notification.py
+│   ├── domain/
+│   │   └── models/           # SQLAlchemy models
+│   │       ├── user.py
+│   │       ├── log.py
+│   │       ├── placement.py
+│   │       ├── call.py
+│   │       └── chat.py
+│   ├── infrastructure/
+│   │   ├── database/         # Database connection
+│   │   │   ├── connection.py
+│   │   │   └── middleware.py
 │   │   ├── repositories/     # Data access layer
-│   │   └── security/         # Password, session management
-│   ├── presentation/         # Presentation layer
-│   │   ├── assets/           # CSS, PWA/service-worker, notification scripts
-│   │   ├── components/       # UI components
-│   │   │   ├── domain/       # Student & Supervisor components
-│   │   │   └── ui/           # Layouts, navigation
-│   │   └── routes/           # Route handlers
-│   └── config.py             # Application configuration
-├── main.py                   # Application entry point
-├── seed_db.py                # Database seeding
-├── reset_db.py               # Database reset
-├── requirements.txt          # Dependencies
-└── README.md                 # This file
+│   │   └── security/        # Auth & security
+│   │       ├── password.py
+│   │       └── session.py
+│   └── presentation/
+│       ├── assets/          # CSS, JS, PWA files
+│       │   ├── custom.css
+│       │   ├── anchor-uni.jpeg
+│       │   ├── sw.js        # Service Worker
+│       │   └── pwa_install_prompt.js
+│       ├── components/      # Reusable UI components
+│       │   ├── domain/
+│       │   │   ├── landing.py
+│       │   │   ├── auth.py
+│       │   │   ├── student/
+│       │   │   │   ├── dashboard.py
+│       │   │   │   ├── logbook.py
+│       │   │   │   ├── communication.py
+│       │   │   │   └── profile.py
+│       │   │   └── supervisor/
+│       │   │       ├── dashboard.py
+│       │   │       ├── logs.py
+│       │   │       ├── geofencing.py
+│       │   │       └── communication.py
+│       │   ├── shared/
+│       │   │   ├── theme.py
+│       │   │   └── icons.py
+│       │   └── ui/
+│       │       ├── layouts.py
+│       │       ├── navigation.py
+│       │       ├── cards.py
+│       │       └── forms.py
+│       └── routes/          # Route handlers
+│           ├── auth.py
+│           ├── student.py
+│           ├── supervisor.py
+│           ├── chat.py
+│           ├── calls.py
+│           └── notifications.py
+├── scripts/
+│   ├── reset_db.py
+│   └── seed_real_data.py
+├── data/
+│   ├── students.json
+│   └── supervisors.json
+├── docs/
+│   └── screenshots/
+├── .env
+├── .env.example
+├── main.py                  # Application entry point
+├── requirements.txt
+├── pyproject.toml
+└── README.md
 ```
 
 ---
 
-## ✅ What's Implemented
+## Contributing
 
-### Core Infrastructure
-- [x] Clean Architecture (Domain, Application, Infrastructure, Presentation)
-- [x] SQLAlchemy ORM with PostgreSQL
-- [x] Session-based authentication with RBAC
-- [x] Database middleware for automatic session management
-- [x] Password hashing with bcrypt
+This is an academic project (Final Year Project) for Anchor University.
 
-### Student Portal
-- [x] Dashboard with metrics (current week, verified logs, pending, hours)
-- [x] 25-week logbook calendar (Mon-Fri grid)
-- [x] GPS-verified log entry form
-- [x] Offline support (IndexedDB + Service Worker)
-- [x] Filter tabs with active states (All, This Week, Pending)
-- [x] Communication module (Chat + Call History)
-- [x] Profile page
+**Project Owner**: Asuku David
 
-### Supervisor Portal
-- [x] Dashboard overview
-- [x] Log review with bulk actions
-- [x] Filter tabs (All, Pending, Verified, Flagged)
-- [x] Detailed log inspection with GPS data
-- [x] Geofencing map interface (UI ready)
-- [x] Communication with students
+**Developer**: Olorundare Micheal
 
-### Backend Services
-- [x] AuthService (registration, login, password management)
-- [x] LogService (CRUD, GPS validation, geofencing)
-- [x] SyncService (offline sync, deduplication)
-- [x] GeofenceService (Haversine distance calculation)
-
-### PWA Features
-- [x] Service Worker for offline caching
-- [x] IndexedDB for local storage
-- [x] Background sync queue
-- [x] Web App Manifest
+For questions or issues, contact the development team.
 
 ---
 
-## 🚧 In Progress
+## License
 
-### Current Sprint
-- [ ] **WebRTC Video Integration**
-  - Socket.io signaling server
-  - Peer-to-peer connection setup
-  - Camera/microphone permissions
-
-- [ ] **Real-time Chat**
-  - WebSocket server
-  - Message persistence
-  - Push notifications
-
-- [ ] **Interactive Geofencing Map**
-  - Leaflet.js integration
-  - Radius drawing tools
-  - Save coordinates to database
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
-## 🗺️ Roadmap
+## Acknowledgments
 
-### Phase 1: Core Features (75% Complete)
-- [x] Offline-first PWA with IndexedDB
-- [x] GPS-verified logging with geofencing
-- [x] 25-week logbook interface
-- [x] Student and supervisor dashboards (UI)
-- [x] Communication module (UI)
-- [ ] WebRTC video calls (peer-to-peer)
-- [ ] Real-time chat with WebSocket
-
-### Phase 2: Data Integration & Completion (Remaining 25%)
-- [ ] **Connect Supervisor Logs to Real Data**
-  - Currently using mock data, need to fetch from database
-  - Implement actual approval/flagging workflow
-  - Save supervisor comments to database
-
-- [ ] **Interactive Geofencing Map**
-  - Integrate Leaflet.js for map display
-  - Visual radius drawing and editing
-  - Save geofence coordinates to database
-
-- [ ] **WebRTC Video Consultation**
-  - Socket.io signaling server setup
-  - Peer-to-peer video connection
-  - Call initiation and termination
-
-- [ ] **Real-time Chat**
-  - WebSocket server integration
-  - Message persistence to database
-  - Online/offline status indicators
+- **FastHTML** framework by Answer.AI
+- **Faststrap** for Bootstrap components
+- **Bootstrap** team for the UI framework
+- **Anchor University** Computer Science Department
 
 ---
 
-## 📊 Evaluation Metrics
-
-### Location Accuracy
-- Geofencing algorithm success rate in identifying unauthorized logging
-- GPS coordinate precision within ±10 meters
-
-### Synchronization Reliability
-- Speed of data transfer from offline to cloud
-- Success rate of background sync operations
-- Data integrity after sync
-
-### User Satisfaction
-- Ease of use ratings from pilot group
-- Perceived reduction in administrative effort
-- Mobile responsiveness feedback
-
----
-
-## 🚫 Out of Scope
-
-The following are explicitly excluded from this project:
-
-- ❌ ITF allowance payments or financial transactions
-- ❌ Native Android (.apk) or iOS app store deployment
-- ❌ AI-based student-company matching algorithms
-- ❌ Deployment to production servers (handled separately)
-
----
-
-## 📸 Screenshots
-
-### Login Screen
-![Login](docs/screenshots/login.png)
-
-### Student Dashboard
-![Student Dashboard](docs/screenshots/student_dashboard.png)
-
-### Daily Logbook
-![Logbook](docs/screenshots/logbook.png)
-
-### Supervisor Dashboard
-![Supervisor Dashboard](docs/screenshots/supervisor_dashboard.png)
-
----
-
-## 🤝 Contributing
-
-This is an academic project. For questions or issues, contact the development team.
-meshelleva@gmail.com
-
----
-
-## 📄 License
-
-MIT License - See LICENSE file for details.
-
----
-
-**Built with ❤️ using FastHTML and Python**
+**Built with ❤️ using FastHTML and Faststrap**

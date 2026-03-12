@@ -125,7 +125,15 @@ class LogService:
         if week_number < 1 or week_number > 25:
             raise ValueError(f"Log date is outside SIWES period (week {week_number})")
         
-        # Determine location status
+        # Determine location status and measured distance from geofence center.
+        distance_from_geofence = None
+        if placement.geofence:
+            distance_from_geofence, _ = self.geofence_service.calculate_distance_from_geofence(
+                latitude=latitude,
+                longitude=longitude,
+                geofence=placement.geofence,
+            )
+
         location_status = self.geofence_service.get_location_status(
             latitude=latitude,
             longitude=longitude,
@@ -141,6 +149,7 @@ class LogService:
             "activity_description": activity_description,
             "latitude": latitude,
             "longitude": longitude,
+            "distance_from_geofence": distance_from_geofence,
             "location_status": location_status,
             "status": LogStatus.PENDING_REVIEW,
             "synced_at": datetime.utcnow(),

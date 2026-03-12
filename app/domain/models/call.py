@@ -1,6 +1,6 @@
 """Call log model for video/voice call tracking.
 
-This module defines the CallLog model for storing video call history
+This module defines the CallLog model for storing call history
 between students and supervisors.
 """
 
@@ -16,12 +16,12 @@ from app.domain.models.base import TimestampMixin
 class CallLog(Base, TimestampMixin):
     """Model for tracking video/voice calls.
     
-    Stores metadata about Daily.co video calls between students and supervisors,
+    Stores metadata about voice/video calls between students and supervisors,
     including room details, participants, and call duration.
     
     Attributes:
         id: Unique identifier (UUID)
-        room_name: Daily.co room name
+        room_name: provider room name
         room_url: Full URL to join the room
         student_id: Foreign key to student user
         supervisor_id: Foreign key to supervisor user
@@ -57,12 +57,12 @@ class CallLog(Base, TimestampMixin):
         nullable=False,
         unique=True,
         index=True,
-        comment="Daily.co room name"
+        comment="Provider room name"
     )
     room_url = Column(
         String(500),
         nullable=False,
-        comment="Full URL to join the Daily.co room"
+        comment="Full URL to join the call room"
     )
     student_id = Column(
         String(36),

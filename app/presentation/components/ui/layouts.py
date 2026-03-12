@@ -138,9 +138,23 @@ def DashboardLayout(
     
     if isinstance(current_user, str):
         user_name = current_user
+        role_value = ""
+        user_email = ""
     else:
         user_name = getattr(current_user, "full_name", "User")
+        role = getattr(current_user, "role", None)
+        role_value = getattr(role, "value", str(role or "")).lower()
+        user_email = getattr(current_user, "email", "")
     elements.append(DashboardTopBar(user_name=user_name))
+    elements.append(
+        Div(
+            id="offline-auth-state",
+            data_role=role_value,
+            data_name=user_name,
+            data_email=user_email,
+            cls="d-none",
+        )
+    )
 
     # Main content
     elements.append(
@@ -156,6 +170,6 @@ def DashboardLayout(
         elements.append(bottom_nav)
     
     # SSE Notification Listener Script
-    elements.append(Script(src="/assets/call_notifications.js"))
+    elements.append(Script(src="/assets/call_notifications.js?v=20260226-7"))
     
     return Div(*elements, **kwargs)

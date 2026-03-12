@@ -5,11 +5,10 @@ and configures the server.
 """
 
 import sys
-from pathlib import Path
 
 from fasthtml.common import *
 from starlette.middleware import Middleware
-from starlette.responses import FileResponse
+from starlette.responses import RedirectResponse
 from app.infrastructure.database.middleware import DBSessionMiddleware
 from faststrap import add_bootstrap, mount_assets
 from faststrap.pwa import add_pwa
@@ -44,7 +43,7 @@ add_pwa(
     display="standalone",
     start_url="/",
     scope="/",
-    service_worker=False,  # Faststrap route wrapper bug: serve /sw.js manually below.
+    service_worker=True,
     offline_page=True,
 )
 
@@ -52,6 +51,9 @@ add_pwa(
 app.hdrs = app.hdrs + [
     Link(rel="stylesheet", href="/assets/custom.css"),
     Script(src="https://unpkg.com/htmx.org@1.9.10"),
+    Script(f"window.__siwesOfflineLoginDays={int(settings.offline_login_grace_days)};"),
+    Script(src="/assets/pwa_install_prompt.js"),
+    Script(src="/assets/offline_resume.js?v=20260226-1"),
 ]
 
 # Setup component defaults
@@ -78,12 +80,6 @@ async def no_store_middleware(request, call_next):
     return response
 
 
-@app.get("/sw.js")
-def service_worker():
-    """Serve service worker script without FastHTML response double-wrapping."""
-    sw_path = Path("app/presentation/assets/sw.js")
-    return FileResponse(sw_path, media_type="application/javascript")
-
 # Initialize database
 init_db()
 
@@ -97,16 +93,8 @@ from app.presentation.routes.chat import register_chat_routes
 register_chat_routes(app)
 from app.presentation.routes.student import setup_student_routes
 setup_student_routes(app)
-from app.presentation.routes.notifications import register_notification_routes
-register_notification_routes(app)
-from app.presentation.routes.calls import register_call_routes
-register_call_routes(app)
-from app.presentation.routes.chat import register_chat_routes
-register_chat_routes(app)
 from app.presentation.routes.supervisor import setup_supervisor_routes
 setup_supervisor_routes(app)
-from app.presentation.routes.calls import register_call_routes
-register_call_routes(app)
 
 
 # Health check endpoint
@@ -116,17 +104,19 @@ def health_check():
     return {"status": "healthy", "service": "siwes-logbook"}
 
 
+@app.get("/favicon.ico")
+def favicon():
+    """Serve favicon via existing app icon."""
+    return RedirectResponse(url="/assets/icon.png", status_code=307)
+
+
+@app.get("/.well-known/assetlinks.json")
+def assetlinks():
+    """Return empty digital asset links file for Android verifier probes."""
+    return JSONResponse([])
+
+
 # Run the application
 if __name__ == "__main__":
     serve(port=5031)
-
-    """
-    Window A (Supervisor)
-
-Login: ada.williams@university.edu.ng / password123
-Go to Communication. You should see "John Doe" (or similar) in the list.
-Window B (Student)
-
-Login: john.doe@student.university.edu.ng / password123
-Go to Communication. You should see "Dr. Ada Williams" in the header."""
 

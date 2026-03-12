@@ -116,7 +116,7 @@ def StudentSidebarNav(active_page: str = "dashboard") -> FT:
         # Bootstrap classes for responsive behavior:
         # - d-flex flex-column: Layout
         # - offcanvas offcanvas-start: Mobile slide-in from left
-        # - d-lg-block: Always visible on desktop (≥992px)
+        # - d-lg-block: Always visible on desktop (>=992px)
         # - position-lg-fixed: Fixed position on desktop
         cls="sidebar d-flex flex-column offcanvas offcanvas-start d-lg-block position-lg-fixed",
         style="width: 280px; min-height: 95vh; z-index: 1040;",
@@ -280,3 +280,4 @@ def SupervisorBottomNav(active_page: str = "dashboard") -> FT:
             id="mobile-nav"
         )
     )
+

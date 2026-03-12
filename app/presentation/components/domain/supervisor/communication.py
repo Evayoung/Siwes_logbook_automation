@@ -219,7 +219,8 @@ def CallHistoryTable(calls: list | None = None) -> FT:
                                     target="body",
                                     variant="light",
                                     cls="border",
-                                    hx_vals='{"call_type":"video","student_id":"%s"}' % c["student_id"],
+                                    hx_vals='{"call_type":"%s","student_id":"%s"}'
+                                    % (c["type"].lower(), c["student_id"]),
                                     style="min-width: 100px;",
                                 ),
                                 cls="align-middle text-end pe-4 bg-white",

@@ -1,5 +1,11 @@
 /* SIWES Logbook Custom Styles */
 
+/* Prevent horizontal scrolling */
+html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+}
+
 /* Sidebar Navigation */
 .sidebar {
     position: fixed;
@@ -245,7 +251,7 @@
     z-index: 1050 !important;
 }
 
-/* Desktop: Fixed sidebar (≥992px) */
+/* Desktop: Fixed sidebar (>=992px) */
 @media (min-width: 992px) {
     #sidebar {
         position: fixed !important;
@@ -297,8 +303,14 @@
     }
 
     .topbar-notification-menu {
-        width: 86vw;
+        position: fixed;
+        top: 4.25rem;
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        width: calc(100vw - 1.5rem);
         max-width: 360px;
+        max-height: min(70vh, 420px);
     }
 }
 
@@ -453,6 +465,8 @@
 .comm-view-toggle {
     display: flex !important;
     gap: 1.5rem !important; /* gap-4 */
+    justify-content: flex-start !important;
+    align-items: center;
 }
 
 .comm-view-toggle .comm-view-btn {
@@ -461,12 +475,13 @@
     color: #6b7280 !important;
     border-radius: 999px !important;
     padding: 0.5rem 1.1rem !important;
-    width: 11rem !important;
-    min-width: 11rem !important;
+    width: auto !important;
+    min-width: 0 !important;
     text-align: center !important;
     justify-content: center !important;
     font-weight: 600 !important;
     transition: all 0.2s ease;
+    white-space: nowrap;
 }
 
 .comm-view-toggle .comm-view-btn:hover {
@@ -486,6 +501,32 @@
 /* Week card */
 .week-card {
     margin-bottom: 1.5rem;
+}
+
+/* Supervisor logs: show verify button only when any checkbox is selected */
+#supervisor-logs-form .verify-selected-btn {
+    display: none !important;
+}
+
+#supervisor-logs-form:has(.log-checkbox:checked) .verify-selected-btn {
+    display: inline-flex !important;
+}
+
+.week-card-past {
+    border-left: 4px solid #d1d5db;
+    background: #f9fafb;
+}
+
+.week-card-current {
+    border-left: 4px solid #7c3aed;
+    background: #ffffff;
+    box-shadow: 0 8px 20px rgba(124, 58, 237, 0.08);
+}
+
+.week-card-future {
+    border-left: 4px solid #e5e7eb;
+    background: #fcfcfd;
+    opacity: 0.88;
 }
 
 .week-card-header {
@@ -511,3 +552,4 @@
         padding: 0.75rem;
     }
 }
+

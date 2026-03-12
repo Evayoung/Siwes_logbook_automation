@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Optional
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -25,8 +25,8 @@ class Settings(BaseSettings):
         session_lifetime_hours: Session expiration time in hours.
         geofence_default_radius_meters: Default geofence radius.
         geofence_tolerance_meters: GPS accuracy tolerance buffer.
-        daily_api_key: Daily.co API key for video/voice calls.
-        daily_domain: Daily.co domain for room creation.
+        daily_api_key: Legacy Daily.co API key (kept for backward compatibility).
+        daily_domain: Legacy Daily.co domain (kept for backward compatibility).
         debug: Enable debug mode (verbose logging, auto-reload).
         host: Server bind address.
         port: Server port number.
@@ -60,6 +60,12 @@ class Settings(BaseSettings):
         le=168,
         description="Session expiration time (1-168 hours)"
     )
+    offline_login_grace_days: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        description="How many days offline cached login resume is allowed after last successful online auth"
+    )
     
     # Geofencing
     geofence_default_radius_meters: int = Field(
@@ -75,20 +81,34 @@ class Settings(BaseSettings):
         description="GPS accuracy tolerance (0-200 meters)"
     )
     
-    # Daily.co API
+    # Legacy Daily.co API (deprecated; LiveKit is the active provider)
     daily_api_key: Optional[str] = Field(
         default=None,
-        description="Daily.co API key for video/voice calls"
+        description="Legacy Daily.co API key (deprecated)"
     )
     daily_domain: Optional[str] = Field(
         default=None,
-        description="Daily.co domain for room creation"
+        description="Legacy Daily.co domain (deprecated)"
     )
     call_ring_timeout_seconds: int = Field(
         default=75,
         ge=15,
         le=300,
         description="Seconds before unanswered ringing call is auto-marked as missed"
+    )
+    
+    # LiveKit
+    livekit_url: Optional[str] = Field(
+        default=None,
+        description="LiveKit server URL (wss://...)"
+    )
+    livekit_api_key: Optional[str] = Field(
+        default=None,
+        description="LiveKit API key"
+    )
+    livekit_api_secret: Optional[str] = Field(
+        default=None,
+        description="LiveKit API secret"
     )
     
     # Application
@@ -147,11 +167,12 @@ class Settings(BaseSettings):
             return self.database_url
         return self.database_url_dev
     
-    class Config:
-        """Pydantic configuration."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 @lru_cache()

@@ -1,31 +1,37 @@
 """Supervisor student logs review components."""
 
 from fasthtml.common import *
-from faststrap import Card, Button, Icon, Row, Col, Badge, Select
+from faststrap import Card, Button, Icon, Row, Col, Badge, Select, ToggleGroup
 
 
 def LogFilterTabs(active_filter: str = "all", oob: bool = False, student_id: str | None = None) -> FT:
     """Filter tabs for log review."""
     filters = [
         {"key": "all", "label": "All Logs"},
-        {"key": "pending", "label": "Pending Review"},
+        {"key": "pending", "label": "Pending"},
         {"key": "verified", "label": "Verified"},
         {"key": "flagged", "label": "Flagged"},
     ]
 
     student_q = f"?student_id={student_id}" if student_id else ""
-    return Div(
+    tabs = ToggleGroup(
         *[
             Button(
                 f["label"],
-                cls=f"me-2 {'bg-primary text-white' if active_filter == f['key'] else 'border bg-white text-dark'}",
+                variant="light",
+                cls="comm-view-btn",
                 hx_get=f"/supervisor/logs/filter/{f['key']}{student_q}",
                 hx_target="#logs-container",
                 hx_swap="innerHTML",
+                style="max-width: 100px;"
             )
             for f in filters
         ],
-        cls="mb-4 d-flex flex-wrap gap-2",
+        active_index=next((idx for idx, f in enumerate(filters) if f["key"] == active_filter), 0),
+        cls="comm-view-toggle d-flex flex-wrap gap-3 mb-4 justify-content-start",
+    )
+    return Div(
+        tabs,
         id="log-filter-tabs",
         hx_swap_oob="true" if oob else None,
     )
@@ -109,7 +115,7 @@ def StudentLogsPage(logs: list | None = None, active_filter: str = "all", studen
                 Icon("check-circle", cls="me-2"),
                 "Verify Selected",
                 variant="success",
-                cls="bg-success text-white align-self-start",
+                cls="bg-success text-white align-self-start verify-selected-btn",
                 id="verify-selected-btn",
                 type="submit",
             ),
@@ -122,10 +128,16 @@ def StudentLogsPage(logs: list | None = None, active_filter: str = "all", studen
         hx_post="/supervisor/logs/verify-selected",
         hx_target="#logs-feedback",
         hx_swap="innerHTML",
+        id="supervisor-logs-form",
     )
 
 
-def LogReviewPage(log_id: str, log_data: dict) -> FT:
+def LogReviewPage(
+    log_id: str,
+    log_data: dict,
+    review_notice: str | None = None,
+    review_notice_variant: str = "success",
+) -> FT:
     """Detailed log review page."""
     location_status = log_data["location"]["status"]
     status_variant = "success" if location_status.lower().startswith("within") else "danger"
@@ -253,17 +265,19 @@ def LogReviewPage(log_id: str, log_data: dict) -> FT:
         ),
         Card(
             H5("Review & Verification", cls="mb-3"),
+            Div(
+                review_notice,
+                cls=f"alert alert-{review_notice_variant} mb-3",
+                id="review-feedback",
+            ) if review_notice else Div(id="review-feedback"),
             Form(
                 Div(
                     Label("Status", cls="form-label small text-muted"),
                     Select(
                         "review_status",
-                        options=[
-                            ("pending", "Pending"),
-                            ("verified", "Verified"),
-                            ("flagged", "Flagged"),
-                        ],
-                        selected=log_data["log"]["status"],
+                        ("pending", "Pending", log_data["log"]["status"] == "pending"),
+                        ("verified", "Verified", log_data["log"]["status"] == "verified"),
+                        ("flagged", "Flagged", log_data["log"]["status"] == "flagged"),
                         cls="form-select mb-3",
                     ),
                 ),
@@ -278,6 +292,18 @@ def LogReviewPage(log_id: str, log_data: dict) -> FT:
                     ),
                 ),
                 Div(
+                    Div(
+                        Span("Last Reviewed:", cls="text-muted small me-2"),
+                        Span(log_data["log"].get("reviewed_at") or "Not reviewed yet", cls="small fw-medium"),
+                        cls="mb-1",
+                    ),
+                    Div(
+                        Span("Reviewed By:", cls="text-muted small me-2"),
+                        Span(log_data["log"].get("reviewed_by") or "-", cls="small fw-medium"),
+                    ),
+                    cls="mb-3",
+                ),
+                Div(
                     Button(
                         "Cancel",
                         variant="light",
@@ -286,15 +312,48 @@ def LogReviewPage(log_id: str, log_data: dict) -> FT:
                         hx_get="/supervisor/logs",
                         hx_target="body",
                     ),
-                    Button("Save Review", variant="primary", cls="bg-primary text-white px-4", type="submit"),
+                    Button(
+                        Span(
+                            Span(
+                                cls="spinner-border spinner-border-sm me-2 d-none",
+                                id="review-save-spinner",
+                                aria_hidden="true",
+                            ),
+                            "Save Review",
+                        ),
+                        variant="primary",
+                        cls="bg-primary text-white px-4",
+                        type="submit",
+                        id="review-save-btn",
+                    ),
                     cls="d-flex justify-content-end",
                 ),
                 hx_post=f"/supervisor/logs/review/{log_id}",
                 hx_target="body",
                 hx_swap="innerHTML",
+                id="review-form",
+            ),
+            Script(
+                """
+                (function () {
+                    const form = document.getElementById('review-form');
+                    const btn = document.getElementById('review-save-btn');
+                    const spinner = document.getElementById('review-save-spinner');
+                    if (!form || !btn) return;
+
+                    form.addEventListener('htmx:beforeRequest', function () {
+                        btn.setAttribute('disabled', 'disabled');
+                        if (spinner) spinner.classList.remove('d-none');
+                    });
+                    form.addEventListener('htmx:afterRequest', function () {
+                        btn.removeAttribute('disabled');
+                        if (spinner) spinner.classList.add('d-none');
+                    });
+                })();
+                """
             ),
             cls="mb-4 bg-white",
         ),
-        cls="log-review-page mx-auto",
+        cls="log-review-page mx-auto px-3",
         style="max-width: 900px;",
     )

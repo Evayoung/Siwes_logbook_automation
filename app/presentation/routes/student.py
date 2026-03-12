@@ -25,6 +25,8 @@ from app.application.services.sync import SyncService
 from app.application.services.notifications import notification_manager
 from app.application.services.notification import NotificationService
 from app.domain.models.user import StudentProfile
+from app.domain.models.placement import IndustrialPlacement
+from app.infrastructure.services.geofence import GeofenceService
 
 
 def setup_student_routes(app: FastHTML):
@@ -76,14 +78,30 @@ def setup_student_routes(app: FastHTML):
         completion_percent = min(int(round((total_logs / 125) * 100)), 100)
         week_progress_percent = min(int(round((current_week / 25) * 100)), 100)
 
-        location_logs = [log for log in logs if _location_key(log.location_status) in {"within", "outside"}]
-        location_within_count = sum(1 for log in location_logs if _location_key(log.location_status) == "within")
-        location_total_count = len(location_logs)
-        location_accuracy_percent = (
-            int(round((location_within_count / location_total_count) * 100))
-            if location_total_count
-            else 0
-        )
+        placement_ids = {log.placement_id for log in logs if log.placement_id}
+        placement_radius_by_id: dict[str, float] = {}
+        if placement_ids:
+            placements = db.query(IndustrialPlacement).filter(IndustrialPlacement.id.in_(placement_ids)).all()
+            for p in placements:
+                if p.geofence:
+                    placement_radius_by_id[p.id] = float(p.geofence.radius_meters)
+
+        location_scores: list[int] = []
+        location_within_count = 0
+        for log in logs:
+            score = _location_proximity_score(
+                distance_from_geofence=getattr(log, "distance_from_geofence", None),
+                radius_meters=placement_radius_by_id.get(log.placement_id),
+                location_status=_location_key(log.location_status),
+            )
+            if score is None:
+                continue
+            location_scores.append(score)
+            if score >= 100:
+                location_within_count += 1
+
+        location_total_count = len(location_scores)
+        location_accuracy_percent = int(round(sum(location_scores) / location_total_count)) if location_total_count else 0
 
         recent_activities = []
         for log in logs[:5]:
@@ -293,6 +311,13 @@ def setup_student_routes(app: FastHTML):
         placement = placement_repo.get_active_placement(current_user.id)
         
         # Prepare User Data
+        weeks = 0
+        months = 0
+        if profile and profile.siwes_start_date and profile.siwes_end_date:
+            delta_days = max((profile.siwes_end_date - profile.siwes_start_date).days + 1, 0)
+            weeks = max(round(delta_days / 7), 0)
+            months = max(round(delta_days / 30), 0)
+
         user_data = {
             "name": current_user.full_name,
             "email": current_user.email,
@@ -300,7 +325,10 @@ def setup_student_routes(app: FastHTML):
             "dept": profile.department if profile else "--",
             "inst": profile.institution if profile else "--",
             "start": profile.siwes_start_date.strftime("%B %d, %Y") if profile and profile.siwes_start_date else "--",
-            "end": profile.siwes_end_date.strftime("%B %d, %Y") if profile and profile.siwes_end_date else "--"
+            "end": profile.siwes_end_date.strftime("%B %d, %Y") if profile and profile.siwes_end_date else "--",
+            "weeks": weeks,
+            "months": months,
+            "avatar_text": "".join(p[0] for p in current_user.full_name.split()[:2]).upper() if current_user.full_name else "--",
         }
         
         # Prepare Placement Data
@@ -548,13 +576,67 @@ def setup_student_routes(app: FastHTML):
             DailyLog.log_date == parsed_log_date,
         ).first()
         if existing_day_log:
-            err = "A log already exists for this date."
-            return Div(
-                Alert(err, variant="warning"),
-                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
-                cls="modal-body",
-                id="modal-body-content"
-            )
+            if _status_key(existing_day_log.status) == "verified":
+                err = "This log has been verified and can no longer be edited."
+                return Div(
+                    Alert(err, variant="warning"),
+                    Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                    cls="modal-body",
+                    id="modal-body-content"
+                )
+
+            try:
+                existing_day_log.activity_description = activity_description
+                if latitude and longitude:
+                    existing_day_log.latitude = float(latitude)
+                    existing_day_log.longitude = float(longitude)
+
+                if _status_key(existing_day_log.status) == "flagged":
+                    existing_day_log.status = LogStatus.PENDING_REVIEW
+                    existing_day_log.reviewer_id = None
+                    existing_day_log.reviewer_comment = None
+                    existing_day_log.reviewed_at = None
+
+                if placement and placement.geofence and existing_day_log.latitude is not None and existing_day_log.longitude is not None:
+                    geofence_service = GeofenceService()
+                    distance, _ = geofence_service.calculate_distance_from_geofence(
+                        latitude=existing_day_log.latitude,
+                        longitude=existing_day_log.longitude,
+                        geofence=placement.geofence,
+                    )
+                    existing_day_log.distance_from_geofence = distance
+                    existing_day_log.location_status = geofence_service.get_location_status(
+                        latitude=existing_day_log.latitude,
+                        longitude=existing_day_log.longitude,
+                        geofence=placement.geofence,
+                    )
+
+                db.commit()
+
+                supervisor_id = student_profile.assigned_supervisor_id if student_profile else None
+                if supervisor_id:
+                    await notification_manager.send_to_user(
+                        supervisor_id,
+                        "log_submitted",
+                        {
+                            "student_id": current_user.id,
+                            "student_name": current_user.full_name,
+                            "log_date": parsed_log_date.isoformat(),
+                            "updated": True,
+                        },
+                    )
+                if request.headers.get("HX-Request"):
+                    return hx_trigger({"log_save_result": {"ok": True, "message": "Log entry updated successfully."}})
+                return RedirectResponse("/student/logbook", status_code=303)
+            except Exception as e:
+                db.rollback()
+                err = f"Error updating log: {str(e)}"
+                return Div(
+                    Alert(err, variant="danger"),
+                    Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                    cls="modal-body",
+                    id="modal-body-content"
+                )
 
         try:
             # Use SyncService for consistency (even single entry is a "sync" of 1)
@@ -676,7 +758,16 @@ def setup_student_routes(app: FastHTML):
         
         return (
             FilterTabs(active_filter=filter_type, oob=True),
-            *[WeekCard(week["number"], week["start_date"], week["days"]) for week in weeks_data]
+            *[
+                WeekCard(
+                    week["number"],
+                    week["start_date"],
+                    week["days"],
+                    week_phase=week.get("phase", "past"),
+                    show_completed_badge=bool(week.get("show_completed_badge", False)),
+                )
+                for week in weeks_data
+            ]
         )
 
 
@@ -757,10 +848,18 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
                 "hours": hours
             })
             
+        week_phase = "past"
+        if week_num == current_week_num:
+            week_phase = "current"
+        elif week_num > current_week_num:
+            week_phase = "future"
+
         weeks_data.append({
             "number": week_num,
             "start_date": week_start,
-            "days": days_data
+            "days": days_data,
+            "phase": week_phase,
+            "show_completed_badge": week_num < current_week_num,
         })
         
     return weeks_data
@@ -804,6 +903,28 @@ def _location_key(location_status: object) -> str:
         return str(value or "").lower()
     except Exception:
         return ""
+
+
+def _location_proximity_score(
+    distance_from_geofence: float | None,
+    radius_meters: float | None,
+    location_status: str,
+) -> int | None:
+    """Return per-log proximity score (0-100), where 100 means within geofence."""
+    if location_status not in {"within", "outside"}:
+        return None
+
+    if location_status == "within":
+        return 100
+
+    if not radius_meters or radius_meters <= 0:
+        return 0
+    if distance_from_geofence is None:
+        return 0
+
+    # Outside-geofence decay: score falls as distance grows beyond the boundary.
+    normalized = max(0.0, min(1.0, radius_meters / float(distance_from_geofence)))
+    return int(round(normalized * 100))
 
 
 def _calculate_missed_logs(student_profile: Optional[StudentProfile], logs: List[DailyLog]) -> int:

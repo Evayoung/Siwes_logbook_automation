@@ -1,13 +1,10 @@
-"""Video call routes for Daily.co integration.
-
-This module provides routes for creating and joining video calls
-between students and supervisors.
-"""
+"""Video call routes for LiveKit integration."""
 
 from fasthtml.common import *
 from sqlalchemy.orm import Session
 from datetime import datetime
 import asyncio
+import json
 from typing import Optional
 
 from app.infrastructure.security.session import require_auth, require_role
@@ -52,6 +49,309 @@ def _caller_and_peer(call_log: CallLog) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
+def _call_log_url_for_role(role: UserRole, call_log: CallLog) -> str:
+    """Build role-safe call history URL for notifications."""
+    if role == UserRole.STUDENT:
+        return f"/student/communication?tab=calls&peer_id={call_log.supervisor_id}"
+    return f"/supervisor/communication?tab=calls&student_id={call_log.student_id}&peer_id={call_log.student_id}"
+
+
+def _render_livekit_call_page(
+    *,
+    page_title: str,
+    livekit_ws_url: str,
+    token: str,
+    room_name: str,
+    display_name: str,
+    video_enabled: bool,
+    return_url: str,
+    end_url: str,
+    status_url: str,
+    auto_redirect_statuses: str = "completed,declined,missed",
+):
+    """Render an in-app LiveKit call page with zero prejoin config."""
+    ws_url_js = json.dumps(livekit_ws_url)
+    token_js = json.dumps(token)
+    room_js = json.dumps(room_name)
+    display_name_js = json.dumps(display_name)
+    return_url_js = json.dumps(return_url)
+    end_url_js = json.dumps(end_url)
+    status_url_js = json.dumps(status_url)
+    statuses_js = json.dumps(auto_redirect_statuses.split(","))
+    mode_js = "video" if video_enabled else "voice"
+
+    return Html(
+        Head(
+            Title(page_title),
+            Meta(charset="utf-8"),
+            Meta(name="viewport", content="width=device-width, initial-scale=1"),
+            Style(
+                """
+                :root {
+                    --call-bg: radial-gradient(1200px 600px at 20% 10%, rgba(13,110,253,.12), transparent), #0f172a;
+                    --panel-bg: rgba(255,255,255,0.08);
+                    --panel-border: rgba(255,255,255,0.15);
+                }
+                body { margin: 0; background: var(--call-bg); color: #e2e8f0; font-family: system-ui, sans-serif; }
+                .call-shell { min-height: 100vh; display: flex; flex-direction: column; }
+                .call-top {
+                    display: flex; align-items: center; justify-content: space-between;
+                    padding: 12px 16px; backdrop-filter: blur(10px);
+                    background: rgba(15, 23, 42, 0.55); border-bottom: 1px solid var(--panel-border);
+                }
+                .call-meta { font-size: .9rem; color: #cbd5e1; }
+                .call-stage { flex: 1; display: grid; grid-template-columns: 1fr; gap: 12px; padding: 12px; }
+                .media-panel {
+                    border: 1px solid var(--panel-border); border-radius: 14px;
+                    background: var(--panel-bg); overflow: hidden; min-height: 240px;
+                }
+                .media-title { padding: 8px 10px; font-size: .78rem; color: #94a3b8; border-bottom: 1px solid var(--panel-border); }
+                .media-body { position: relative; height: calc(100% - 34px); }
+                .media-body video, .media-body audio { width: 100%; height: 100%; object-fit: cover; display: block; }
+                .voice-center {
+                    min-height: 220px; display: flex; flex-direction: column;
+                    align-items: center; justify-content: center; gap: 8px; color: #cbd5e1;
+                }
+                .voice-avatar {
+                    width: 88px; height: 88px; border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center;
+                    background: rgba(59,130,246,.25); border: 1px solid rgba(148,163,184,.4);
+                    font-weight: 700; font-size: 1.25rem;
+                }
+                .call-controls {
+                    display: flex; justify-content: center; gap: 10px; padding: 12px 16px 18px;
+                }
+                .call-btn {
+                    border: none; border-radius: 999px; padding: 10px 14px;
+                    font-weight: 600; cursor: pointer; color: #fff;
+                    background: rgba(30, 41, 59, 0.9);
+                }
+                .call-btn.danger { background: rgba(220, 53, 69, 0.95); }
+                .call-btn.active { background: rgba(13, 110, 253, 0.92); }
+                .call-status { padding: 0 16px 10px; text-align: center; color: #94a3b8; font-size: .9rem; }
+                @media (max-width: 900px) {
+                    .call-stage { grid-template-columns: 1fr; }
+                }
+                """
+            ),
+        ),
+        Body(
+            Div(
+                Div(
+                    Div(
+                        Div("Live Call", cls="fw-semibold"),
+                        Div(
+                            f"{'Video' if video_enabled else 'Voice'} - {display_name}",
+                            cls="call-meta",
+                        ),
+                    ),
+                    Div(f"Room: {room_name}", cls="call-meta"),
+                    cls="call-top",
+                ),
+                Div(
+                    Div(
+                        Div("Remote Participant", cls="media-title"),
+                        Div(
+                            Div(
+                                Div("Waiting for other participant...", cls="small"),
+                                Div("Audio will connect automatically.", cls="small text-muted"),
+                                cls="voice-center",
+                                id="remote-voice-state",
+                            ),
+                            id="remote-media",
+                            cls="media-body",
+                        ),
+                        cls="media-panel",
+                    ),
+                    cls="call-stage",
+                ),
+                Div(id="call-status", cls="call-status", *["Connecting..."]),
+                Div(
+                    Button("Mute", id="mute-btn", cls="call-btn active"),
+                    Button(
+                        "Camera Off" if video_enabled else "Voice Mode",
+                        id="video-btn",
+                        cls="call-btn" + ("" if video_enabled else " d-none"),
+                    ),
+                    Button("End & Return", id="end-btn", cls="call-btn danger"),
+                    cls="call-controls",
+                ),
+                cls="call-shell",
+            ),
+            Script(
+                f"""
+                import {{ Room, RoomEvent }} from 'https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.esm.mjs';
+
+                const wsUrl = {ws_url_js};
+                const token = {token_js};
+                const roomName = {room_js};
+                const displayName = {display_name_js};
+                const returnUrl = {return_url_js};
+                const endUrl = {end_url_js};
+                const statusUrl = {status_url_js};
+                const terminalStatuses = new Set({statuses_js});
+                const callMode = "{mode_js}";
+
+                const statusEl = document.getElementById('call-status');
+                const remoteMedia = document.getElementById('remote-media');
+                const muteBtn = document.getElementById('mute-btn');
+                const videoBtn = document.getElementById('video-btn');
+                const endBtn = document.getElementById('end-btn');
+
+                let redirecting = false;
+                let micEnabled = true;
+                let camEnabled = callMode === 'video';
+
+                const room = new Room({{
+                    adaptiveStream: true,
+                    dynacast: true,
+                }});
+
+                function setStatus(message) {{
+                    if (statusEl) statusEl.textContent = message;
+                }}
+
+                function goBack() {{
+                    if (redirecting) return;
+                    redirecting = true;
+                    window.location.href = returnUrl;
+                }}
+
+                async function endAndReturn() {{
+                    try {{
+                        await fetch(endUrl, {{
+                            method: 'POST',
+                            credentials: 'same-origin',
+                        }});
+                    }} catch (e) {{
+                        console.error('[CALL] Failed to end call:', e);
+                    }} finally {{
+                        try {{ room.disconnect(); }} catch (_) {{}}
+                        goBack();
+                    }}
+                }}
+
+                async function checkStatus() {{
+                    if (redirecting) return;
+                    try {{
+                        const response = await fetch(statusUrl, {{ credentials: 'same-origin' }});
+                        if (!response.ok) return;
+                        const data = await response.json();
+                        const st = String((data && data.status) || '');
+                        if (terminalStatuses.has(st)) goBack();
+                    }} catch (e) {{
+                        console.error('[CALL] Status check failed:', e);
+                    }}
+                }}
+
+                function clearRemoteMedia() {{
+                    const nodes = remoteMedia ? remoteMedia.querySelectorAll('video,audio') : [];
+                    nodes.forEach(n => n.remove());
+                    const wait = document.getElementById('remote-voice-state');
+                    if (wait) wait.classList.remove('d-none');
+                }}
+
+                function attachRemoteTrack(track) {{
+                    if (!remoteMedia) return;
+                    const wait = document.getElementById('remote-voice-state');
+                    if (wait) wait.classList.add('d-none');
+                    const el = track.attach();
+                    el.autoplay = true;
+                    el.playsInline = true;
+                    if (track.kind === 'audio') {{
+                        el.controls = false;
+                    }}
+                    remoteMedia.appendChild(el);
+                }}
+
+                room.on(RoomEvent.TrackSubscribed, (track) => {{
+                    attachRemoteTrack(track);
+                    setStatus('Connected');
+                }});
+
+                room.on(RoomEvent.TrackUnsubscribed, (track) => {{
+                    try {{ track.detach().forEach(el => el.remove()); }} catch (_) {{}}
+                    const hasMedia = !!remoteMedia.querySelector('video,audio');
+                    if (!hasMedia) clearRemoteMedia();
+                }});
+
+                room.on(RoomEvent.ParticipantConnected, () => {{
+                    setStatus('Connected');
+                }});
+
+                room.on(RoomEvent.ParticipantDisconnected, () => {{
+                    if (room.remoteParticipants.size === 0) {{
+                        clearRemoteMedia();
+                        setStatus('Other participant left');
+                        setTimeout(endAndReturn, 1200);
+                    }}
+                }});
+
+                room.on(RoomEvent.Disconnected, () => {{
+                    goBack();
+                }});
+
+                muteBtn?.addEventListener('click', async () => {{
+                    micEnabled = !micEnabled;
+                    try {{
+                        await room.localParticipant.setMicrophoneEnabled(micEnabled);
+                        muteBtn.textContent = micEnabled ? 'Mute' : 'Unmute';
+                        muteBtn.classList.toggle('active', micEnabled);
+                    }} catch (e) {{
+                        console.error('[CALL] mic toggle failed', e);
+                    }}
+                }});
+
+                videoBtn?.addEventListener('click', async () => {{
+                    if (callMode !== 'video') return;
+                    camEnabled = !camEnabled;
+                    try {{
+                        await room.localParticipant.setCameraEnabled(camEnabled);
+                        videoBtn.textContent = camEnabled ? 'Camera Off' : 'Camera On';
+                        videoBtn.classList.toggle('active', camEnabled);
+                    }} catch (e) {{
+                        console.error('[CALL] cam toggle failed', e);
+                    }}
+                }});
+
+                endBtn?.addEventListener('click', endAndReturn);
+
+                window.addEventListener('beforeunload', () => {{
+                    try {{ navigator.sendBeacon(endUrl); }} catch (_) {{}}
+                }});
+
+                async function start() {{
+                    try {{
+                        setStatus('Connecting to room...');
+                        await room.connect(wsUrl, token);
+                        await room.localParticipant.setMicrophoneEnabled(true);
+                        if (callMode === 'video') {{
+                            await room.localParticipant.setCameraEnabled(true);
+                        }} else {{
+                            await room.localParticipant.setCameraEnabled(false);
+                        }}
+
+                        if (room.remoteParticipants.size > 0) {{
+                            setStatus('Connected');
+                        }} else {{
+                            setStatus('Waiting for other participant...');
+                        }}
+                    }} catch (e) {{
+                        console.error('[CALL] connect failed', e);
+                        setStatus('Unable to connect. Returning...');
+                        setTimeout(goBack, 1200);
+                    }}
+                }}
+
+                start();
+                setInterval(checkStatus, 5000);
+                """,
+                **{"type": "module"},
+            ),
+        ),
+    )
+
+
 async def _auto_mark_missed_call(call_id: str, timeout_seconds: int = 75):
     """Mark ringing call as missed after timeout and notify caller."""
     await asyncio.sleep(timeout_seconds)
@@ -76,10 +376,8 @@ async def _auto_mark_missed_call(call_id: str, timeout_seconds: int = 75):
         )
 
         notif_service = NotificationService(db)
-        if caller_id == call_log.student_id:
-            callback_url = f"/student/communication?tab=calls&peer_id={call_log.supervisor_id}"
-        else:
-            callback_url = f"/supervisor/communication?tab=calls&student_id={call_log.student_id}&peer_id={call_log.student_id}"
+        caller_role = UserRole.STUDENT if caller_id == call_log.student_id else UserRole.SUPERVISOR
+        callback_url = _call_log_url_for_role(caller_role, call_log)
 
         notif_service.create_notification(
             user_id=caller_id,
@@ -197,7 +495,7 @@ def register_call_routes(app):
                         headers={"Content-Type": "application/json"}
                     )
 
-            # Create Daily.co room
+            # Create LiveKit room handle
             daily_service = DailyService()
             room = daily_service.create_room(
                 student_id=student_id,
@@ -240,9 +538,9 @@ def register_call_routes(app):
             try:
                 notif_service = NotificationService(db)
                 if current_user.role == UserRole.STUDENT:
-                    action_url = "/supervisor/communication?tab=calls"
+                    action_url = _call_log_url_for_role(UserRole.SUPERVISOR, call_log)
                 else:
-                    action_url = f"/student/communication?tab=calls&peer_id={current_user.id}"
+                    action_url = _call_log_url_for_role(UserRole.STUDENT, call_log)
                 notif_service.create_notification(
                     user_id=recipient_id,
                     notification_type=NotificationType.CALL_REQUEST,
@@ -315,11 +613,6 @@ def register_call_routes(app):
             if request.headers.get("HX-Request"):
                 return _hx_call_error("Call not found")
             return JSONResponse({"error": "Call not found"}, status_code=404)
-        
-        if call_log.status != "ringing":
-            if request.headers.get("HX-Request"):
-                return _hx_call_error("Call is no longer available")
-            return JSONResponse({"error": "Call is no longer available"}, status_code=409)
 
         # Verify user is the recipient
         if call_log.student_id != current_user.id and call_log.supervisor_id != current_user.id:
@@ -332,6 +625,20 @@ def register_call_routes(app):
             if request.headers.get("HX-Request"):
                 return _hx_call_error("Only the recipient can accept this call")
             return JSONResponse({"error": "Only the recipient can accept this call"}, status_code=403)
+
+        # Idempotent accept for repeated click/retry on already-accepted calls.
+        if call_log.status == "accepted":
+            redirect_url = _build_join_url_for_user(
+                current_user.role, call_log.room_name, call_log.call_type or "video"
+            )
+            if request.headers.get("HX-Request"):
+                return hx_redirect(redirect_url)
+            return JSONResponse({"success": True, "redirect_url": redirect_url})
+
+        if call_log.status != "ringing":
+            if request.headers.get("HX-Request"):
+                return _hx_call_error("Call is no longer available")
+            return JSONResponse({"error": "Call is no longer available"}, status_code=409)
         
         # Update call status
         call_log.status = "accepted"
@@ -356,12 +663,13 @@ def register_call_routes(app):
 
         try:
             notif_service = NotificationService(db)
+            caller_role = UserRole.SUPERVISOR if caller_id == call_log.supervisor_id else UserRole.STUDENT
             notif_service.create_notification(
                 user_id=caller_id,
                 notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
                 title="Call Accepted",
                 message=f"{current_user.full_name} accepted your call.",
-                action_url=redirect_url,
+                action_url=_call_log_url_for_role(caller_role, call_log),
             )
             db.commit()
         except Exception:
@@ -401,11 +709,6 @@ def register_call_routes(app):
             if request.headers.get("HX-Request"):
                 return _hx_call_error("Call not found")
             return JSONResponse({"error": "Call not found"}, status_code=404)
-        
-        if call_log.status != "ringing":
-            if request.headers.get("HX-Request"):
-                return _hx_call_error("Call is no longer available")
-            return JSONResponse({"error": "Call is no longer available"}, status_code=409)
 
         # Verify user is the recipient
         if call_log.student_id != current_user.id and call_log.supervisor_id != current_user.id:
@@ -418,6 +721,17 @@ def register_call_routes(app):
             if request.headers.get("HX-Request"):
                 return _hx_call_error("Only the recipient can decline this call")
             return JSONResponse({"error": "Only the recipient can decline this call"}, status_code=403)
+
+        # Idempotent success when already terminal.
+        if call_log.status in {"declined", "missed", "completed", "cancelled"}:
+            if request.headers.get("HX-Request"):
+                return hx_trigger("call_declined")
+            return JSONResponse({"success": True})
+
+        if call_log.status != "ringing":
+            if request.headers.get("HX-Request"):
+                return _hx_call_error("Call is no longer available")
+            return JSONResponse({"error": "Call is no longer available"}, status_code=409)
         
         # Update call status
         call_log.status = "declined"
@@ -435,7 +749,8 @@ def register_call_routes(app):
 
         try:
             notif_service = NotificationService(db)
-            fallback_url = "/student/communication?tab=calls" if current_user.role == UserRole.SUPERVISOR else "/supervisor/communication?tab=calls"
+            caller_role = UserRole.SUPERVISOR if caller_id == call_log.supervisor_id else UserRole.STUDENT
+            fallback_url = _call_log_url_for_role(caller_role, call_log)
             notif_service.create_notification(
                 user_id=caller_id,
                 notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
@@ -465,12 +780,12 @@ def register_call_routes(app):
         
         Args:
             request: FastHTML request object
-            room_name: Daily.co room name
+            room_name: LiveKit room name
             db: Database session
             current_user: Authenticated user
         
         Returns:
-            Video call page with embedded Daily.co iframe
+            Video call page with embedded LiveKit UI
         """
         # Get call log
         call_log = db.query(CallLog).filter(
@@ -494,122 +809,39 @@ def register_call_routes(app):
         
         # Generate meeting token for security
         daily_service = DailyService()
-        token = None
         try:
             token = daily_service.create_meeting_token(
                 room_name=room_name,
                 user_name=current_user.full_name,
-                is_owner=False  # Student is not owner
+                is_owner=False,  # Student is not owner
+                identity=current_user.id,
             )
-        except Exception:
-            token = None
+        except Exception as e:
+            return Div(
+                H1("Unable to start call"),
+                P(f"Token generation failed: {str(e)}"),
+                A("Back", href="/student/communication?tab=calls", cls="btn btn-primary"),
+                cls="container py-5",
+            )
 
-        room_src = call_log.room_url
-        if token:
-            room_src = f"{call_log.room_url}?t={token}"
-        elif daily_service.provider == "jitsi":
-            from urllib.parse import quote
-            display_name = quote(current_user.full_name or "User", safe="")
-            room_src = f"{call_log.room_url}&userInfo.displayName=%22{display_name}%22&config.requireDisplayName=false"
-        
+        video_enabled = (call_log.call_type or "video") != "voice"
+        video_query = (request.query_params.get("video") or "").strip().lower()
+        if video_query in {"false", "0", "no"}:
+            video_enabled = False
+
         return_url = f"/student/communication?tab=calls&peer_id={call_log.supervisor_id}"
         end_url = f"/api/calls/{call_log.id}/end"
         status_url = f"/api/calls/{call_log.id}/status"
-        auto_redirect_statuses = "completed,declined,missed"
-
-        # Return video call page
-        return Html(
-            Head(
-                Title("Video Call - SIWES Logbook"),
-                Meta(charset="utf-8"),
-                Meta(name="viewport", content="width=device-width, initial-scale=1"),
-                Style("""
-                    body { margin: 0; padding: 0; overflow: hidden; }
-                    #call-frame { width: 100vw; height: 100vh; border: none; }
-                    #call-overlay {
-                        position: fixed;
-                        top: 12px;
-                        right: 12px;
-                        z-index: 1000;
-                        display: flex;
-                        gap: 8px;
-                    }
-                    #end-return-btn {
-                        border: none;
-                        border-radius: 999px;
-                        background: rgba(220, 53, 69, 0.92);
-                        color: #fff;
-                        padding: 10px 14px;
-                        font-weight: 600;
-                        cursor: pointer;
-                        backdrop-filter: blur(6px);
-                    }
-                """)
-            ),
-            Body(
-                Div(
-                    Button("End & Return", id="end-return-btn"),
-                    id="call-overlay",
-                ),
-                Iframe(
-                    id="call-frame",
-                    src=room_src,
-                    allow="camera; microphone; fullscreen; speaker; display-capture"
-                ),
-                Script(f"""
-                    (function() {{
-                        const returnUrl = "{return_url}";
-                        const endUrl = "{end_url}";
-                        const statusUrl = "{status_url}";
-                        const terminalStatuses = new Set("{auto_redirect_statuses}".split(","));
-                        let redirecting = false;
-
-                        function goBack() {{
-                            if (redirecting) return;
-                            redirecting = true;
-                            window.location.href = returnUrl;
-                        }}
-
-                        async function endAndReturn() {{
-                            try {{
-                                await fetch(endUrl, {{
-                                    method: "POST",
-                                    credentials: "same-origin"
-                                }});
-                            }} catch (e) {{
-                                console.error("[CALL] Failed to end call:", e);
-                            }} finally {{
-                                goBack();
-                            }}
-                        }}
-
-                        async function checkStatus() {{
-                            if (redirecting) return;
-                            try {{
-                                const response = await fetch(statusUrl, {{ credentials: "same-origin" }});
-                                if (!response.ok) return;
-                                const data = await response.json();
-                                if (data && terminalStatuses.has(String(data.status || ""))) {{
-                                    goBack();
-                                }}
-                            }} catch (e) {{
-                                console.error("[CALL] Status check failed:", e);
-                            }}
-                        }}
-
-                        const btn = document.getElementById("end-return-btn");
-                        if (btn) btn.addEventListener("click", endAndReturn);
-                        window.addEventListener("beforeunload", function() {{
-                            try {{
-                                navigator.sendBeacon(endUrl);
-                            }} catch (e) {{
-                                console.error("[CALL] beforeunload beacon failed:", e);
-                            }}
-                        }});
-                        setInterval(checkStatus, 5000);
-                    }})();
-                """)
-            )
+        return _render_livekit_call_page(
+            page_title=("Video Call - SIWES Logbook" if video_enabled else "Voice Call - SIWES Logbook"),
+            livekit_ws_url=daily_service.livekit_url,
+            token=token,
+            room_name=room_name,
+            display_name=current_user.full_name,
+            video_enabled=video_enabled,
+            return_url=return_url,
+            end_url=end_url,
+            status_url=status_url,
         )
     
     @app.get("/supervisor/call/{room_name}")
@@ -625,12 +857,12 @@ def register_call_routes(app):
         
         Args:
             request: FastHTML request object
-            room_name: Daily.co room name
+            room_name: LiveKit room name
             db: Database session
             current_user: Authenticated user
         
         Returns:
-            Video call page with embedded Daily.co iframe
+            Video call page with embedded LiveKit UI
         """
         # Get call log
         call_log = db.query(CallLog).filter(
@@ -654,122 +886,39 @@ def register_call_routes(app):
         
         # Generate meeting token for security
         daily_service = DailyService()
-        token = None
         try:
             token = daily_service.create_meeting_token(
                 room_name=room_name,
                 user_name=current_user.full_name,
-                is_owner=True  # Supervisor is owner (can record, eject)
+                is_owner=True,  # Supervisor is owner
+                identity=current_user.id,
             )
-        except Exception:
-            token = None
+        except Exception as e:
+            return Div(
+                H1("Unable to start call"),
+                P(f"Token generation failed: {str(e)}"),
+                A("Back", href="/supervisor/communication?tab=calls", cls="btn btn-primary"),
+                cls="container py-5",
+            )
 
-        room_src = call_log.room_url
-        if token:
-            room_src = f"{call_log.room_url}?t={token}"
-        elif daily_service.provider == "jitsi":
-            from urllib.parse import quote
-            display_name = quote(current_user.full_name or "User", safe="")
-            room_src = f"{call_log.room_url}&userInfo.displayName=%22{display_name}%22&config.requireDisplayName=false"
-        
+        video_enabled = (call_log.call_type or "video") != "voice"
+        video_query = (request.query_params.get("video") or "").strip().lower()
+        if video_query in {"false", "0", "no"}:
+            video_enabled = False
+
         return_url = f"/supervisor/communication?tab=calls&student_id={call_log.student_id}&peer_id={call_log.student_id}"
         end_url = f"/api/calls/{call_log.id}/end"
         status_url = f"/api/calls/{call_log.id}/status"
-        auto_redirect_statuses = "completed,declined,missed"
-
-        # Return video call page
-        return Html(
-            Head(
-                Title("Video Call - SIWES Logbook"),
-                Meta(charset="utf-8"),
-                Meta(name="viewport", content="width=device-width, initial-scale=1"),
-                Style("""
-                    body { margin: 0; padding: 0; overflow: hidden; }
-                    #call-frame { width: 100vw; height: 100vh; border: none; }
-                    #call-overlay {
-                        position: fixed;
-                        top: 12px;
-                        right: 12px;
-                        z-index: 1000;
-                        display: flex;
-                        gap: 8px;
-                    }
-                    #end-return-btn {
-                        border: none;
-                        border-radius: 999px;
-                        background: rgba(220, 53, 69, 0.92);
-                        color: #fff;
-                        padding: 10px 14px;
-                        font-weight: 600;
-                        cursor: pointer;
-                        backdrop-filter: blur(6px);
-                    }
-                """)
-            ),
-            Body(
-                Div(
-                    Button("End & Return", id="end-return-btn"),
-                    id="call-overlay",
-                ),
-                Iframe(
-                    id="call-frame",
-                    src=room_src,
-                    allow="camera; microphone; fullscreen; speaker; display-capture"
-                ),
-                Script(f"""
-                    (function() {{
-                        const returnUrl = "{return_url}";
-                        const endUrl = "{end_url}";
-                        const statusUrl = "{status_url}";
-                        const terminalStatuses = new Set("{auto_redirect_statuses}".split(","));
-                        let redirecting = false;
-
-                        function goBack() {{
-                            if (redirecting) return;
-                            redirecting = true;
-                            window.location.href = returnUrl;
-                        }}
-
-                        async function endAndReturn() {{
-                            try {{
-                                await fetch(endUrl, {{
-                                    method: "POST",
-                                    credentials: "same-origin"
-                                }});
-                            }} catch (e) {{
-                                console.error("[CALL] Failed to end call:", e);
-                            }} finally {{
-                                goBack();
-                            }}
-                        }}
-
-                        async function checkStatus() {{
-                            if (redirecting) return;
-                            try {{
-                                const response = await fetch(statusUrl, {{ credentials: "same-origin" }});
-                                if (!response.ok) return;
-                                const data = await response.json();
-                                if (data && terminalStatuses.has(String(data.status || ""))) {{
-                                    goBack();
-                                }}
-                            }} catch (e) {{
-                                console.error("[CALL] Status check failed:", e);
-                            }}
-                        }}
-
-                        const btn = document.getElementById("end-return-btn");
-                        if (btn) btn.addEventListener("click", endAndReturn);
-                        window.addEventListener("beforeunload", function() {{
-                            try {{
-                                navigator.sendBeacon(endUrl);
-                            }} catch (e) {{
-                                console.error("[CALL] beforeunload beacon failed:", e);
-                            }}
-                        }});
-                        setInterval(checkStatus, 5000);
-                    }})();
-                """)
-            )
+        return _render_livekit_call_page(
+            page_title=("Video Call - SIWES Logbook" if video_enabled else "Voice Call - SIWES Logbook"),
+            livekit_ws_url=daily_service.livekit_url,
+            token=token,
+            room_name=room_name,
+            display_name=current_user.full_name,
+            video_enabled=video_enabled,
+            return_url=return_url,
+            end_url=end_url,
+            status_url=status_url,
         )
 
     @app.get("/api/calls/{call_id}/status")
@@ -828,13 +977,13 @@ def register_call_routes(app):
         
         db.commit()
         
-        # Delete Daily.co room
+        # LiveKit rooms are ephemeral; delete_room is a no-op.
         try:
             daily_service = DailyService()
             daily_service.delete_room(call_log.room_name)
         except Exception as e:
             # Log error but don't fail the request
-            print(f"Failed to delete Daily.co room: {e}")
+            print(f"Failed to finalize room cleanup: {e}")
         
         return JSONResponse({
             "success": True,

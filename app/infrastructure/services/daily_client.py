@@ -1,6 +1,6 @@
-"""Daily.co API client for video and voice calls.
+"""Legacy Daily.co API client for video and voice calls.
 
-This module provides a client for interacting with the Daily.co API to create
+This module provides a client for interacting with the legacy Daily.co API to create
 and manage video call rooms for student-supervisor consultations.
 
 Example:
@@ -24,14 +24,14 @@ from datetime import datetime, timedelta
 
 
 class DailyClient:
-    """Client for Daily.co API operations.
+    """Client for legacy Daily.co API operations.
     
     Provides methods to create, manage, and delete video call rooms using
     the Daily.co REST API.
     
     Attributes:
         api_key: Daily.co API key for authentication
-        base_url: Base URL for Daily.co API (default: https://api.daily.co/v1)
+        base_url: Base URL for legacy Daily.co API (default: https://api.daily.co/v1)
     
     Example:
         >>> client = DailyClient(api_key="your_api_key")
@@ -48,7 +48,7 @@ class DailyClient:
         api_key: str,
         base_url: str = "https://api.daily.co/v1"
     ):
-        """Initialize the Daily.co client.
+        """Initialize the legacy Daily.co client.
         
         Args:
             api_key: Daily.co API key
@@ -286,3 +286,4 @@ class DailyClient:
             )
             response.raise_for_status()
             return response.json()
+

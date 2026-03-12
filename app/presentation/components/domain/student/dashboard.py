@@ -246,7 +246,7 @@ def StudentDashboard(
             Div(
                 H6("Location Accuracy", cls="mb-0"),
                 Span(
-                    f"{location_accuracy_percent}% within geofence",
+                    f"{location_accuracy_percent}% proximity score",
                     style="font-size:12px; background-color: #E7F7F2; border-radius: 20px; padding: 4px 8px; color: #10B77F;",
                 ),
                 cls="d-flex justify-content-between align-items-center mb-3",
@@ -262,7 +262,7 @@ def StudentDashboard(
                 cls="d-flex align-items-center gap-2 w-90 justify-content-between",
             ),
             P(
-                f"{location_within_count} of {location_total_count} logs within geofence",
+                f"{location_within_count} of {location_total_count} logs fully within geofence",
                 cls="small text-muted mb-0",
             ),
         ),

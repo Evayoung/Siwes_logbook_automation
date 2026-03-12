@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, desc
 from datetime import datetime
 from urllib.parse import unquote, quote
+from typing import Optional
 
 from app.infrastructure.security.session import require_auth
 from app.domain.models.chat import ChatMessage
@@ -69,7 +70,7 @@ def register_chat_routes(app):
         request: Request,
         other_user_id: str,
         db: Session = None,
-        current_user = None
+        current_user: Optional[User] = None
     ):
         """Fetch chat history with a specific user."""
         messages = db.query(ChatMessage).filter(
@@ -98,7 +99,7 @@ def register_chat_routes(app):
         before: str,
         limit: int = 20,
         db: Session = None,
-        current_user = None
+        current_user: Optional[User] = None
     ):
         """Fetch older messages for infinite scroll prepend."""
         try:

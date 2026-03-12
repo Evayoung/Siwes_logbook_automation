@@ -189,44 +189,7 @@ def setup_supervisor_routes(app: FastHTML):
         if not student_profile or student_profile.assigned_supervisor_id != current_user.id:
             return RedirectResponse("/unauthorized", status_code=303)
 
-        student = db.query(User).filter(User.id == log.student_id).first()
-        location_status = "Within geofence" if log.location_status and log.location_status.value == "within" else "Outside geofence"
-        if log.location_status and log.location_status.value == "unknown":
-            location_status = "Unknown location"
-
-        distance = f"{(log.distance_from_geofence or 0):.0f}m"
-        coords = "N/A"
-        if log.latitude is not None and log.longitude is not None:
-            coords = f"{log.latitude:.6f}, {log.longitude:.6f}"
-
-        review_status = "pending"
-        if log.status == LogStatus.VERIFIED:
-            review_status = "verified"
-        elif log.status == LogStatus.FLAGGED:
-            review_status = "flagged"
-
-        log_data = {
-            "student": {
-                "name": student.full_name if student else "Unknown Student",
-                "matric": student_profile.matriculation_number,
-                "company": student_profile.institution,
-            },
-            "log": {
-                "week": log.week_number,
-                "date": log.log_date.isoformat(),
-                "description": log.activity_description,
-                "hours": "8h",
-                "day": log.log_date.strftime("%A"),
-                "status": review_status,
-                "review_comment": log.reviewer_comment,
-            },
-            "location": {
-                "status": location_status,
-                "coords": coords,
-                "distance": distance,
-                "radius_text": "Based on configured placement geofence",
-            },
-        }
+        log_data = _build_log_review_data(db, log, student_profile)
         return LogReviewPage(log_id, log_data)
 
     @app.post("/supervisor/logs/review/{log_id}")
@@ -236,10 +199,14 @@ def setup_supervisor_routes(app: FastHTML):
         """Save a single log review decision."""
         log = db.query(DailyLog).filter(DailyLog.id == log_id).first()
         if not log:
+            if request.headers.get("HX-Request"):
+                return Div("Log not found.", cls="alert alert-danger", id="review-feedback")
             return RedirectResponse("/supervisor/logs", status_code=303)
 
         student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == log.student_id).first()
         if not student_profile or student_profile.assigned_supervisor_id != current_user.id:
+            if request.headers.get("HX-Request"):
+                return Div("Unauthorized action.", cls="alert alert-danger", id="review-feedback")
             return RedirectResponse("/unauthorized", status_code=303)
 
         form = await request.form()
@@ -248,6 +215,8 @@ def setup_supervisor_routes(app: FastHTML):
         review_service = ReviewService(db)
         student_id = log.student_id
 
+        notice = "Review saved successfully."
+        variant = "success"
         try:
             if review_status == "verified":
                 review_service.verify_log(log_id, current_user.id, review_comment)
@@ -289,9 +258,25 @@ def setup_supervisor_routes(app: FastHTML):
                 db.commit()
             except Exception:
                 db.rollback()
-        except Exception:
+        except Exception as e:
             db.rollback()
+            notice = f"Failed to save review: {str(e)}"
+            variant = "danger"
 
+        refreshed_log = db.query(DailyLog).filter(DailyLog.id == log_id).first()
+        if not refreshed_log:
+            if request.headers.get("HX-Request"):
+                return Div(notice, cls=f"alert alert-{variant}", id="review-feedback")
+            return RedirectResponse("/supervisor/logs", status_code=303)
+
+        log_data = _build_log_review_data(db, refreshed_log, student_profile)
+        if request.headers.get("HX-Request"):
+            return LogReviewPage(
+                log_id,
+                log_data,
+                review_notice=notice,
+                review_notice_variant=variant,
+            )
         return RedirectResponse("/supervisor/logs", status_code=303)
 
     @app.post("/supervisor/logs/verify-selected")
@@ -592,6 +577,51 @@ def _status_label(status: LogStatus) -> str:
     return "Pending"
 
 
+def _build_log_review_data(db: Session, log: DailyLog, student_profile: StudentProfile | None) -> dict:
+    """Map a DailyLog entity to the supervisor review page payload."""
+    student = db.query(User).filter(User.id == log.student_id).first()
+    reviewer = db.query(User).filter(User.id == log.reviewer_id).first() if log.reviewer_id else None
+    location_status = "Within geofence" if log.location_status and log.location_status.value == "within" else "Outside geofence"
+    if log.location_status and log.location_status.value == "unknown":
+        location_status = "Unknown location"
+
+    distance = f"{(log.distance_from_geofence or 0):.0f}m"
+    coords = "N/A"
+    if log.latitude is not None and log.longitude is not None:
+        coords = f"{log.latitude:.6f}, {log.longitude:.6f}"
+
+    review_status = "pending"
+    if log.status == LogStatus.VERIFIED:
+        review_status = "verified"
+    elif log.status == LogStatus.FLAGGED:
+        review_status = "flagged"
+
+    return {
+        "student": {
+            "name": student.full_name if student else "Unknown Student",
+            "matric": student_profile.matriculation_number if student_profile else "--",
+            "company": student_profile.institution if student_profile else "--",
+        },
+        "log": {
+            "week": log.week_number,
+            "date": log.log_date.isoformat(),
+            "description": log.activity_description,
+            "hours": "8h",
+            "day": log.log_date.strftime("%A"),
+            "status": review_status,
+            "review_comment": log.reviewer_comment,
+            "reviewed_at": log.reviewed_at.strftime("%b %d, %Y %I:%M %p") if log.reviewed_at else None,
+            "reviewed_by": reviewer.full_name if reviewer else None,
+        },
+        "location": {
+            "status": location_status,
+            "coords": coords,
+            "distance": distance,
+            "radius_text": "Based on configured placement geofence",
+        },
+    }
+
+
 def _get_supervisor_logs_data(
     db: Session,
     supervisor_id: str,
@@ -776,14 +806,6 @@ def _get_supervisor_geofencing_data(
     profile_placement_ids = {p.placement_id for p in assigned_profiles if p.placement_id}
     log_placement_ids = {l.placement_id for l in all_logs if l.placement_id}
     placement_ids = sorted(profile_placement_ids.union(log_placement_ids))
-    if not placement_ids:
-        return [], []
-
-    placements = db.query(IndustrialPlacement).filter(
-        IndustrialPlacement.id.in_(placement_ids)
-    ).all()
-    placement_by_id = {p.id: p for p in placements}
-    companies = sorted({p.company_name for p in placements if p.company_name})
 
     latest_log_by_student: dict[str, DailyLog] = {}
     for log in all_logs:
@@ -796,6 +818,62 @@ def _get_supervisor_geofencing_data(
             continue
         if log.log_date and existing.log_date and log.log_date > existing.log_date:
             latest_log_by_student[log.student_id] = log
+
+    # Fallback: if placement relations are not populated yet, build "virtual sites"
+    # from student institutions so filters/cards are still functional.
+    if not placement_ids:
+        company_students: dict[str, set[str]] = {}
+        for profile in assigned_profiles:
+            company = (profile.institution or "").strip() or "Unassigned Placement"
+            company_students.setdefault(company, set()).add(profile.user_id)
+
+        recent_cutoff = date.today() - timedelta(days=7)
+        companies = sorted(company_students.keys())
+        placements_data: list[dict] = []
+        for company_name, ids in company_students.items():
+            site_student_ids = sorted(list(ids))
+            student_names: list[str] = []
+            last_dates: list[date] = []
+            active_students = 0
+
+            for sid in site_student_ids:
+                student = user_by_id.get(sid)
+                if student:
+                    student_names.append(student.full_name)
+
+                latest = latest_log_by_student.get(sid)
+                if latest and latest.log_date:
+                    last_dates.append(latest.log_date)
+                    if latest.log_date >= recent_cutoff:
+                        active_students += 1
+
+            status_key = "active" if active_students > 0 else "inactive"
+            last_log_date = max(last_dates) if last_dates else None
+            site = {
+                "placement_id": None,
+                "company": company_name,
+                "address": "Placement address not linked yet",
+                "coords": "Coordinates not set",
+                "status_key": status_key,
+                "students": sorted(student_names),
+                "students_count": len(site_student_ids),
+                "last_checkin": _format_last_checkin(last_log_date),
+                "radius_text": "Geofence not configured",
+            }
+            if company_filter != "all" and site["company"] != company_filter:
+                continue
+            if status_filter != "all" and site["status_key"] != status_filter:
+                continue
+            placements_data.append(site)
+
+        placements_data.sort(key=lambda s: (s["status_key"] != "active", s["company"]))
+        return placements_data, companies
+
+    placements = db.query(IndustrialPlacement).filter(
+        IndustrialPlacement.id.in_(placement_ids)
+    ).all()
+    placement_by_id = {p.id: p for p in placements}
+    companies = sorted({p.company_name for p in placements if p.company_name})
 
     placement_students: dict[str, set[str]] = {}
     for profile in assigned_profiles:

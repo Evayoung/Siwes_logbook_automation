@@ -19,6 +19,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.domain.models.chat import Notification, NotificationType
+from app.domain.models.user import StudentProfile
 from app.infrastructure.repositories.notification import NotificationRepository
 
 
@@ -54,7 +55,7 @@ class NotificationService:
         message: str,
         related_log_id: Optional[str] = None,
         action_url: Optional[str] = None
-    ) -> Notification:
+    ) -> Optional[Notification]:
         """Create a new notification.
         
         Args:
@@ -78,6 +79,10 @@ class NotificationService:
             ...     action_url=f"/logs/{log.id}"
             ... )
         """
+        student_profile = self.db.query(StudentProfile).filter(StudentProfile.user_id == user_id).first()
+        if student_profile and not bool(getattr(student_profile, "setting_notifications", True)):
+            return None
+
         notification_data = {
             "user_id": user_id,
             "type": notification_type,
@@ -96,7 +101,7 @@ class NotificationService:
         log_id: str,
         status: str,
         feedback: Optional[str] = None
-    ) -> Notification:
+    ) -> Optional[Notification]:
         """Notify student that their log has been reviewed.
         
         Args:
@@ -118,11 +123,11 @@ class NotificationService:
         """
         if status == "verified":
             notification_type = NotificationType.LOG_VERIFIED
-            title = "Log Verified ✓"
+            title = "Log Verified"
             message = "Your log has been verified by your supervisor"
         else:
             notification_type = NotificationType.LOG_FLAGGED
-            title = "Log Flagged ⚠"
+            title = "Log Flagged"
             message = "Your log has been flagged for review"
         
         if feedback:
@@ -142,7 +147,7 @@ class NotificationService:
         student_id: str,
         week_number: int,
         days_remaining: int
-    ) -> Notification:
+    ) -> Optional[Notification]:
         """Notify student of approaching deadline.
         
         Args:
@@ -173,13 +178,13 @@ class NotificationService:
         user_id: str,
         from_user_name: str,
         room_url: str
-    ) -> Notification:
+    ) -> Optional[Notification]:
         """Notify user of incoming call request.
         
         Args:
             user_id: User's ID to notify
             from_user_name: Name of user requesting call
-            room_url: Daily.co room URL
+            room_url: Call room URL
         
         Returns:
             Created Notification instance
@@ -188,7 +193,7 @@ class NotificationService:
             >>> service.notify_call_request(
             ...     user_id=supervisor.id,
             ...     from_user_name="John Doe",
-            ...     room_url="https://yourdomain.daily.co/room-123"
+            ...     room_url="/supervisor/communication?tab=calls"
             ... )
         """
         return self.create_notification(
@@ -204,7 +209,7 @@ class NotificationService:
         user_id: str,
         from_user_name: str,
         message_preview: str
-    ) -> Notification:
+    ) -> Optional[Notification]:
         """Notify user of new chat message.
         
         Args:
@@ -299,3 +304,4 @@ class NotificationService:
             >>> count = service.count_unread(user_id)
         """
         return self.notification_repo.count_unread(user_id)
+

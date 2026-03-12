@@ -7,6 +7,7 @@ including login, logout, and session management.
 from fasthtml.common import *
 from sqlalchemy.orm import Session
 from app.presentation.components.domain.auth import LoginPage
+from app.presentation.components.domain.landing import LandingPage
 from app.application.services.auth import AuthService
 from app.domain.models.user import UserRole
 from app.infrastructure.security.session import get_current_user
@@ -32,13 +33,13 @@ def setup_auth_routes(app: FastHTML):
 
     @app.get("/")
     def index(request: Request):
-        """Route root to dashboard when authenticated, otherwise login."""
+        """Route root to dashboard when authenticated, otherwise public landing."""
         db: Session = request.state.db
         user = get_current_user(request, db)
         if user:
             return RedirectResponse(_dashboard_path(user.role), status_code=303)
         _clear_invalid_session(request)
-        return RedirectResponse("/login", status_code=303)
+        return LandingPage()
     
     
     @app.get("/login")
@@ -64,11 +65,6 @@ def setup_auth_routes(app: FastHTML):
             _clear_invalid_session(request)
         
         return LoginPage()
-
-    @app.get("/forgot-password")
-    def forgot_password_page():
-        """Temporary placeholder page for password reset flow."""
-        return LoginPage(error="Password reset is not enabled yet. Contact your administrator.")
 
     @app.get("/unauthorized")
     def unauthorized_page():
@@ -137,7 +133,7 @@ def setup_auth_routes(app: FastHTML):
         request.session.clear()
 
         return RedirectResponse(
-            "/login?force=1",
+            "/login?force=1&logged_out=1",
             status_code=303,
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",

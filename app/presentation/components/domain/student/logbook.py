@@ -1,7 +1,7 @@
 """Student logbook components - Daily log tracking with 25-week overview."""
 
 from fasthtml.common import *
-from faststrap import Card, Button, Icon, Alert, Input, Badge, Modal, Row, Col
+from faststrap import Card, Button, Icon, Alert, Input, Badge, Modal, Row, Col, ToggleGroup
 from datetime import datetime, timedelta
 from typing import List, Dict
 
@@ -23,19 +23,24 @@ def FilterTabs(active_filter: str = "all", oob: bool = False) -> FT:
         {"key": "pending", "label": "Pending Review"},
     ]
     
-    return Div(
+    tabs = ToggleGroup(
         *[
             Button(
                 f["label"],
-                cls=f"me-2 {'bg-primary text-white' if active_filter == f['key'] else 'border bg-white text-dark'}",
+                variant="light",
+                cls="comm-view-btn",
                 hx_get=f"/student/logbook/filter/{f['key']}",
                 hx_target="#weeks-container",
                 hx_swap="innerHTML",
-                style="border-radius:8px;"
+                style="max-width: 160px;"
             )
             for f in filters
         ],
-        cls="mb-4 d-flex flex-wrap gap-2",
+        active_index=next((idx for idx, f in enumerate(filters) if f["key"] == active_filter), 0),
+        cls="comm-view-toggle d-flex flex-wrap gap-3 mb-4 justify-content-start",
+    )
+    return Div(
+        tabs,
         id="student-filter-tabs",
         hx_swap_oob="true" if oob else None
     )
@@ -110,15 +115,18 @@ def DayCellNormal(day_name: str, display_date: str, iso_date: str, status: str |
     )
 
 
-def WeekCard(week_number: int, start_date: datetime, days_data: List[Dict]) -> FT:
+def WeekCard(
+    week_number: int,
+    start_date: datetime,
+    days_data: List[Dict],
+    week_phase: str = "past",
+    show_completed_badge: bool = False,
+) -> FT:
     """Week card showing 5 daily cells."""
     end_date = start_date + timedelta(days=4)
     date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
     
-    # Calculate status counts
-    verified = sum(1 for d in days_data if d.get("status") == "verified")
-    pending = sum(1 for d in days_data if d.get("status") in ["pending", "pending_review"])
-    flagged = sum(1 for d in days_data if d.get("status") == "flagged")
+    phase = week_phase if week_phase in {"past", "current", "future"} else "past"
     
     return Card(
         # Header
@@ -129,9 +137,8 @@ def WeekCard(week_number: int, start_date: datetime, days_data: List[Dict]) -> F
                 cls="week-card-header-left"
             ),
             Div(
-                Badge(f"{verified} Verified", variant="success", cls="me-1") if verified else "",
-                Badge(f"{pending} Pending", variant="warning", cls="me-1") if pending else "",
-                Badge(f"{flagged} Flagged", variant="danger") if flagged else "",
+                Badge("Completed Week", variant="secondary", cls="me-1") if show_completed_badge else "",
+                Badge("Current Week", variant="primary", cls="me-1") if phase == "current" else "",
                 cls="week-card-header-right"
             ),
             cls="week-card-header"
@@ -151,7 +158,7 @@ def WeekCard(week_number: int, start_date: datetime, days_data: List[Dict]) -> F
             cls="daily-grid m-1"
         ),
         
-        cls="week-card white-color"
+        cls=f"week-card week-card-{phase} white-color"
     )
 
 # GPS Capture JavaScript
@@ -163,7 +170,7 @@ if (navigator.geolocation) {
             document.getElementById('longitude').value = position.coords.longitude;
             document.getElementById('gps-coords').textContent = 
                 position.coords.latitude.toFixed(6) + ', ' + position.coords.longitude.toFixed(6);
-            document.getElementById('gps-status').textContent = 'Location acquired ✓';
+            document.getElementById('gps-status').textContent = 'Location acquired';
             document.getElementById('gps-alert').className = 'alert alert-success';
             document.getElementById('submit-btn').disabled = false;
         },
@@ -233,13 +240,13 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
             Div(
                 Label("Activity Description *", cls="form-label"),
                 Textarea(
+                    existing_log.get("description", "") if existing_log else "",
                     name="activity_description",
                     rows=6,
                     placeholder="Describe your activities for this day..." if not is_readonly else "",
                     required=True,
                     maxlength=500,
                     readonly=is_readonly,
-                    value=existing_log.get("description", "") if existing_log else "",
                     cls="form-control"
                 ),
                 P(
@@ -251,8 +258,20 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
             ),
             
             # Hidden GPS fields
-            Input(type="hidden", name="latitude", id="latitude", required=True) if not existing_log else "",
-            Input(type="hidden", name="longitude", id="longitude", required=True) if not existing_log else "",
+            Input(
+                type="hidden",
+                name="latitude",
+                id="latitude",
+                required=not bool(existing_log),
+                value=str(existing_log.get("latitude", "")) if existing_log else "",
+            ),
+            Input(
+                type="hidden",
+                name="longitude",
+                id="longitude",
+                required=not bool(existing_log),
+                value=str(existing_log.get("longitude", "")) if existing_log else "",
+            ),
             Input(type="hidden", name="log_date", value=date),
             
             # Submit button
@@ -329,22 +348,34 @@ def LogbookPage(
                 P("25-Week SIWES Program", cls="text-muted"),
                 cls="flex-grow-1"
             ),
-            Button(
-                Icon("plus-lg", cls="me-2"),
-                "New Log Entry",
-                variant="primary",
-                data_bs_toggle="modal",
-                data_bs_target="#logModal",
-                hx_get="/student/logbook/day/today",
-                hx_target="#modal-body-content",
-                hx_swap="innerHTML",
-                style="width: 200px;"
+            Div(
+                Button(
+                    Icon("arrow-repeat", cls="me-2"),
+                    Span("Sync Pending", cls="me-2"),
+                    Span("0", id="offline-sync-count", cls="badge text-bg-light d-none"),
+                    variant="light",
+                    cls="border",
+                    id="offline-sync-btn",
+                    type="button",
+                ),
+                Button(
+                    Icon("plus-lg", cls="me-2"),
+                    "New Log Entry",
+                    variant="primary",
+                    data_bs_toggle="modal",
+                    data_bs_target="#logModal",
+                    hx_get="/student/logbook/day/today",
+                    hx_target="#modal-body-content",
+                    hx_swap="innerHTML",
+                    style="width: 200px;"
+                ),
+                cls="d-flex align-items-center gap-2",
             ),
             cls="d-flex justify-content-between align-items-start mb-4 gap-3 flex-wrap",
         ),
         Div(
             Icon("geo-alt-fill", cls="me-2"),
-            Span("GPS is off or unavailable. Please enable location before submitting today’s log."),
+            Span("GPS is off or unavailable. Please enable location before submitting today's log."),
             cls="alert alert-warning d-none align-items-center",
             id="logbook-gps-warning",
         ),
@@ -390,7 +421,10 @@ def LogbookPage(
                         day.get("status"),
                         day.get("hours")
                     )
-                    for day in (weeks_data[0]["days"] if weeks_data else [])
+                    for day in (
+                        next((w["days"] for w in weeks_data if w.get("number") == current_week), None)
+                        or (weeks_data[0]["days"] if weeks_data else [])
+                    )
                 ],
                 cls="daily-grid"
             ),
@@ -402,7 +436,16 @@ def LogbookPage(
 
         # Weeks container
         Div(
-            *[WeekCard(week["number"], week["start_date"], week["days"]) for week in weeks_data],
+            *[
+                WeekCard(
+                    week["number"],
+                    week["start_date"],
+                    week["days"],
+                    week_phase=week.get("phase", "past"),
+                    show_completed_badge=bool(week.get("show_completed_badge", False)),
+                )
+                for week in weeks_data
+            ],
             id="weeks-container",
         ),
         
@@ -444,4 +487,13 @@ def LogbookPage(
                 }
             })();
         """),
+        Div(
+            "",
+            id="offline-sync-config",
+            data_offline_mode="1" if offline_mode_enabled else "0",
+            cls="d-none",
+        ),
+        Script(src="/assets/offline_log_sync.js?v=20260226-2"),
     )
+
+

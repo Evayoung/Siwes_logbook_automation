@@ -147,7 +147,7 @@ def CallHistoryItem(call: dict) -> FT:
             # Call Details
             Div(
                 H6(call["name"], cls="mb-0 fw-bold"),
-                P(f"{call['type'].capitalize()} • {call['duration']}", cls="text-muted small mb-0"),
+                P(f"{call['type'].capitalize()} - {call['duration']}", cls="text-muted small mb-0"),
                 cls="flex-grow-1"
             ),
             # Time
@@ -285,4 +285,5 @@ def CommunicationPage(
         
         cls="communication-page pb-4"
     )
+
 

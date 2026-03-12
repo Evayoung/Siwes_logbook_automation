@@ -31,7 +31,7 @@ def WeekProgressCard(
     progress_pct = (current_week / total_weeks) * 100
     
     return Card(
-        H5(f"📅 Week {current_week} of {total_weeks}", cls="mb-3"),
+        H5(f"Week {current_week} of {total_weeks}", cls="mb-3"),
         Progress(progress_pct, variant="primary", label=f"{progress_pct:.0f}%", cls="mb-3"),
         P(f"{logs_this_week} Days Logged This Week", cls="mb-1 text-muted small"),
         P(
@@ -119,7 +119,7 @@ def LogEntryCard(
             Div(
                 Div(
                     H6(date_str, cls="mb-0"),
-                    P(f"Week {week_number} · Day {day_number}", cls="text-muted small mb-0")
+                    P(f"Week {week_number} - Day {day_number}", cls="text-muted small mb-0")
                 ),
                 StatusBadge(status),
                 cls="d-flex justify-content-between align-items-start mb-3"
@@ -132,7 +132,7 @@ def LogEntryCard(
             Div(
                 LocationBadge(location_status, distance),
                 P(
-                    f"⏱️ {hours_logged} hours logged" if hours_logged else "",
+                    f"{hours_logged} hours logged" if hours_logged else "",
                     cls="mb-0 ms-3 small text-muted"
                 ) if hours_logged else "",
                 cls="d-flex align-items-center"
@@ -232,17 +232,17 @@ def WeekGridCell(
         icon = ""
     elif log_status == "VERIFIED":
         cell_class = "week-cell week-cell-verified"
-        icon = "✓"
+        icon = "OK"
     elif log_status == "PENDING_REVIEW":
         cell_class = "week-cell week-cell-pending"
-        icon = "⏱️"
+        icon = "PENDING"
     elif log_status == "FLAGGED":
         cell_class = "week-cell week-cell-flagged"
-        icon = "⚠️"
+        icon = "FLAG"
     else:
         cell_class = "week-cell week-cell-empty"
-        icon = "📝"
-    
+        icon = "DRAFT"
+
     # Day names
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
     day_name = day_names[day_number - 1] if 1 <= day_number <= 5 else ""
@@ -257,3 +257,6 @@ def WeekGridCell(
         hx_push_url="true" if has_log and log_id else None,
         style="cursor: pointer;" if has_log else ""
     )
+
+
+

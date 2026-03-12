@@ -7,7 +7,7 @@ Modules:
     database: Database connection and session management
     security: Password hashing and session management
     repositories: Data access layer with repository pattern
-    services: Infrastructure services (geofence, Daily.co client)
+    services: Infrastructure services (geofence, call provider helpers)
 """
 
 from app.infrastructure import database

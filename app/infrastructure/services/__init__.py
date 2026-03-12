@@ -5,7 +5,7 @@ and external API clients.
 
 Modules:
     geofence: Geofence validation and distance calculations
-    daily_client: Daily.co API client for video/voice calls
+    daily_client: legacy Daily.co API client (deprecated)
 """
 
 from app.infrastructure.services.geofence import GeofenceService

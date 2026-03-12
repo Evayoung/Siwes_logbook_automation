@@ -49,7 +49,18 @@ def LoginForm(error: str | None = None) -> FT:
         
         # Submit button
         Button("Login", variant="primary", full_width=True, type="submit"),
-        A("Forgot password?", href="/forgot-password", cls="text-decoration-none mt-2 d-block text-center"),
+        Div(
+            P(
+                "Offline password login is not available. If you logged in recently, you can continue using cached workspace offline.",
+                cls="text-muted small text-center mt-2 mb-1",
+                id="login-offline-hint",
+            ),
+            A(
+                "Forgot password? Contact admin",
+                href="mailto:meshelleva@gmail.com?subject=SIWES%20Password%20Reset",
+                cls="text-decoration-none d-block text-center small",
+            ),
+        ),
         
         method="post",
         action="/login",
