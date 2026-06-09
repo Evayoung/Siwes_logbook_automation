@@ -164,7 +164,7 @@
                 <div class="d-flex align-items-center"><i class="bi bi-geo-alt-fill me-2"></i><span id="gps-status">Detecting location...</span></div>
                 <div class="small mt-2">Coordinates: <span id="gps-coords" class="font-monospace">--</span></div>
             </div>
-            <form method="post" action="/student/logbook/create" hx-post="/student/logbook/create" hx-target="#modal-body-content" hx-swap="outerHTML">
+            <form method="post" action="/student/logbook/create" hx-post="/student/logbook/create" hx-target="#modal-body-content" hx-swap="outerHTML" hx-indicator="#log-save-spinner" hx-disabled-elt="#submit-btn">
                 <div class="mb-3">
                     <label class="form-label">Date</label>
                     <input type="date" class="form-control" name="log_date" value="${isoDate}" readonly>
@@ -177,7 +177,10 @@
                 <input type="hidden" name="longitude" id="longitude" required>
                 <div class="d-flex justify-content-end">
                     <button type="button" class="btn btn-secondary me-2" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary" id="submit-btn" disabled>Save Log Entry</button>
+                    <button type="submit" class="btn btn-primary" id="submit-btn" disabled>
+                        <span class="spinner-border spinner-border-sm me-2 htmx-indicator" id="log-save-spinner" aria-hidden="true"></span>
+                        Save Log Entry
+                    </button>
                 </div>
             </form>
         `;
@@ -319,6 +322,8 @@
                 event.stopImmediatePropagation();
 
                 try {
+                    const submit = form.querySelector('[type="submit"]');
+                    if (submit) submit.setAttribute('disabled', 'disabled');
                     await queueCurrentForm(form);
                     const modalEl = document.getElementById('logModal');
                     if (modalEl && window.bootstrap && window.bootstrap.Modal) {
@@ -331,6 +336,9 @@
                     document.body.dispatchEvent(
                         new CustomEvent('log_save_result', { detail: { ok: false, message: String(err.message || err) } })
                     );
+                } finally {
+                    const submit = form.querySelector('[type="submit"]');
+                    if (submit) submit.removeAttribute('disabled');
                 }
             },
             true

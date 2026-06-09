@@ -60,9 +60,12 @@ def DayCell(day_name: str, display_date: str, iso_date: str, status: str | None 
         Day cell HTML with modal trigger
     """
     status_icons = {
-        "verified": Icon("check2-circle", cls="text-success fs-4"),
-        "pending": Icon("exclamation-circle", cls="fs-4"),
-        "flagged": Icon("x-circle", cls="text-danger fs-4"),
+        "verified": ("check2-circle", "text-success fs-5"),
+        "logged": ("check2-circle", "text-success fs-5"),
+        "pending": ("exclamation-circle", "fs-5"),
+        "flagged": ("x-circle", "text-danger fs-5"),
+        "missed": ("x-circle", "text-danger fs-5"),
+        "empty": ("dash-circle", "text-muted fs-5"),
     }
     
     cell_class = f"day-cell day-cell-{status}" if status else "day-cell day-cell-pending"
@@ -73,14 +76,19 @@ def DayCell(day_name: str, display_date: str, iso_date: str, status: str | None 
         
     icon_key = "pending"
     if status == "verified": icon_key = "verified"
+    elif status == "logged": icon_key = "logged"
     elif status == "flagged": icon_key = "flagged"
+    elif status == "missed": icon_key = "missed"
+    elif status == "empty": icon_key = "empty"
     elif status == "pending_review": icon_key = "pending"
     
+    icon_name, icon_cls = status_icons.get(icon_key, status_icons["pending"])
+
     return A(
         Div(
             Div(
                 Div(day_name, cls="fw-bold"),
-                Icon(status_icons.get(icon_key), cls="fs-5"),
+                Icon(icon_name, cls=icon_cls),
                 cls="d-flex justify-content-between align-items-center w-100"
             ),
             P(display_date, style="font-size: 13px; text-align: left; margin-bottom: 0;"),
@@ -199,7 +207,9 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
     Args:
         date: ISO date string (YYYY-MM-DD)
     """
+    is_existing = bool(existing_log)
     is_readonly = bool(existing_log and (existing_log.get("status") == "verified" or existing_log.get("readonly")))
+    submit_label = "Update Log Entry" if is_existing else "Save Log Entry"
     
     return Div(
         # ... GPS Alerts ...
@@ -284,7 +294,14 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
                     cls="me-2"
                 ),
                 Button(
-                    "Save Log Entry",
+                    Span(
+                        Span(
+                            cls="spinner-border spinner-border-sm me-2 htmx-indicator",
+                            id="log-save-spinner",
+                            aria_hidden="true",
+                        ),
+                        submit_label,
+                    ),
                     variant="primary",
                     type="submit",
                     id="submit-btn",
@@ -300,7 +317,9 @@ def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
             action="/student/logbook/create",
             hx_post="/student/logbook/create",
             hx_target="#modal-body-content",
-            hx_swap="outerHTML"
+            hx_swap="outerHTML",
+            hx_indicator="#log-save-spinner",
+            hx_disabled_elt="#submit-btn",
         ),
         
         id="modal-body-content"

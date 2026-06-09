@@ -145,6 +145,10 @@ class Settings(BaseSettings):
         le=50,
         description="SQLAlchemy max overflow connections for PostgreSQL deployments"
     )
+    db_disable_pooling: bool = Field(
+        default=True,
+        description="Disable SQLAlchemy connection pooling for constrained cloud Postgres poolers"
+    )
     
     app_name: str = Field(
         default="SIWES Logbook Automation System",

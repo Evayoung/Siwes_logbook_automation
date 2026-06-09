@@ -418,17 +418,38 @@ html, body {
 
 .day-cell-verified {
     background: #E7F7F2;
-    border-color: #a1f8db;
+    border-color: #34d399;
+    color: #065f46;
+}
+
+.day-cell-logged {
+    background: #E7F7F2;
+    border-color: #34d399;
+    color: #065f46;
 }
 
 .day-cell-pending {
-    background: #ffffff;
-    border-color: #e4e3e3;
+    background: #FFF7ED;
+    border-color: #FDBA74;
+    color: #9A3412;
 }
 
 .day-cell-flagged {
     background: #FDECEC;
     border-color: #fcb3b3;
+    color: #991b1b;
+}
+
+.day-cell-missed {
+    background: #FDECEC;
+    border-color: #fcb3b3;
+    color: #991b1b;
+}
+
+.day-cell-empty {
+    background: #F9FAFB;
+    border-color: #E5E7EB;
+    color: #6B7280;
 }
 
 
@@ -496,6 +517,15 @@ html, body {
     background: #7c3aed !important;
     color: #ffffff !important;
     box-shadow: 0 6px 14px rgba(124, 58, 237, 0.2);
+}
+
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: inline-block;
 }
 
 /* Week card */

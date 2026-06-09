@@ -10,7 +10,7 @@ from typing import Generator
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.config import get_settings
 from app.domain.models.base import Base
@@ -47,13 +47,17 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.close()
 else:
     # PostgreSQL configuration for production
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,  # Verify connections before using
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-    echo=settings.debug,
-    )
+    engine_kwargs = {
+        "pool_pre_ping": True,
+        "echo": settings.debug,
+    }
+    if settings.db_disable_pooling:
+        engine_kwargs["poolclass"] = NullPool
+    else:
+        engine_kwargs["pool_size"] = settings.db_pool_size
+        engine_kwargs["max_overflow"] = settings.db_max_overflow
+
+    engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 # Create session factory
 SessionLocal = sessionmaker(

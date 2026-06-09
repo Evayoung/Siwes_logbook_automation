@@ -149,8 +149,15 @@ def StudentLogsPage(logs: list | None = None, active_filter: str = "all", studen
                 P("Review and verify student log entries", cls="text-muted"),
             ),
             Button(
-                Icon("check-circle", cls="me-2"),
-                "Verify Selected",
+                Span(
+                    Span(
+                        cls="spinner-border spinner-border-sm me-2 htmx-indicator",
+                        id="verify-selected-spinner",
+                        aria_hidden="true",
+                    ),
+                    Icon("check-circle", cls="me-2"),
+                    "Verify Selected",
+                ),
                 variant="success",
                 cls="bg-success text-white align-self-start verify-selected-btn",
                 id="verify-selected-btn",
@@ -168,6 +175,8 @@ def StudentLogsPage(logs: list | None = None, active_filter: str = "all", studen
         hx_post="/supervisor/logs/verify-selected",
         hx_target="#logs-feedback",
         hx_swap="innerHTML",
+        hx_indicator="#verify-selected-spinner",
+        hx_disabled_elt="#verify-selected-btn",
         id="supervisor-logs-form",
     )
 

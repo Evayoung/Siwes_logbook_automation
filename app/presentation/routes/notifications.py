@@ -36,7 +36,7 @@ def register_notification_routes(app):
         # Manual authentication check for SSE
         # Access session data directly from request
         if not hasattr(request, "session") or "user_id" not in request.session:
-            return Response("Unauthorized", status_code=401)
+            return Response(status_code=204)
         
         user_id = request.session["user_id"]
         if not _notifications_enabled_for_user(user_id):

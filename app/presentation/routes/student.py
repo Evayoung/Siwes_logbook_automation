@@ -836,9 +836,16 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
             status = None
             hours = None
             if day_log:
-                status = _status_key(day_log.status)
+                status_key = _status_key(day_log.status)
+                status = "flagged" if status_key == "flagged" else "logged"
                 # app/domain/models/log.py LogStatus enum values are strings
                 hours = 8 
+            elif day_date < today:
+                status = "missed"
+            elif day_date == today:
+                status = "pending"
+            else:
+                status = "empty"
             
             days_data.append({
                 "name": day_date.strftime("%a"),
