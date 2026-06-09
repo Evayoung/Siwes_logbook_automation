@@ -9,7 +9,14 @@ from app.domain.models.user import User, UserRole
 from app.infrastructure.security.session import require_auth, require_role
 from app.presentation.components.domain.supervisor.dashboard import SupervisorDashboard
 from app.presentation.components.domain.supervisor.geofencing import GeofencingPage, GeofencingContent, PlacementFilter
-from app.presentation.components.domain.supervisor.logs import StudentLogsPage, LogCard, LogFilterTabs, LogReviewPage
+from app.presentation.components.domain.supervisor.logs import (
+    EmptyLogsState,
+    LogCard,
+    LogFilterTabs,
+    LogReviewPage,
+    StudentLogsPage,
+    normalize_log_filter,
+)
 from app.presentation.components.ui.layouts import DashboardLayout
 from app.presentation.components.ui.navigation import SupervisorSidebarNav, SupervisorBottomNav
 from app.application.services.review import ReviewService
@@ -129,7 +136,7 @@ def setup_supervisor_routes(app: FastHTML):
         Returns:
             Student logs HTML
         """
-        active_filter = filter if filter in {"all", "pending", "verified", "flagged"} else "all"
+        active_filter = normalize_log_filter(filter)
         logs_data = _get_supervisor_logs_data(db, current_user.id, active_filter, student_id=student_id)
         content = StudentLogsPage(logs=logs_data, active_filter=active_filter, student_id=student_id)
         
@@ -154,12 +161,13 @@ def setup_supervisor_routes(app: FastHTML):
         Returns:
             Updated logs and tabs
         """
-        filtered_logs = _get_supervisor_logs_data(db, current_user.id, filter_key, student_id=student_id)
+        active_filter = normalize_log_filter(filter_key)
+        filtered_logs = _get_supervisor_logs_data(db, current_user.id, active_filter, student_id=student_id)
             
         # Return tabs (OOB swap) and log cards
         return (
-            LogFilterTabs(active_filter=filter_key, oob=True, student_id=student_id),
-            *[LogCard(log) for log in filtered_logs]
+            LogFilterTabs(active_filter=active_filter, oob=True, student_id=student_id),
+            *([LogCard(log) for log in filtered_logs] if filtered_logs else [EmptyLogsState(active_filter)])
         )
 
     @app.get("/supervisor/logs/review/{log_id}")

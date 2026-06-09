@@ -150,7 +150,7 @@ def SupervisorDashboard(
                 f"{stale_students_count} student(s) have not logged in the past 3 days",
                 cls="d-flex align-items-center",
             ),
-            A("View", href="/supervisor/logs?filter=pending", cls="btn btn-outline-warning btn-sm bg-white"),
+            A("View Logs", href="/supervisor/logs", cls="btn btn-outline-warning btn-sm bg-white"),
             variant="warning",
             cls="d-flex justify-content-between align-items-center mb-4 bg-warning-subtle text-warning-emphasis border border-warning-subtle",
         )

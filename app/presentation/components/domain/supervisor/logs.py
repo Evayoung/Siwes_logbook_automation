@@ -4,8 +4,18 @@ from fasthtml.common import *
 from faststrap import Card, Button, Icon, Row, Col, Badge, Select, ToggleGroup
 
 
+VALID_LOG_FILTERS = {"all", "pending", "verified", "flagged"}
+
+
+def normalize_log_filter(active_filter: str | None = "all") -> str:
+    """Return a supported supervisor log filter key."""
+    key = (active_filter or "all").strip().lower()
+    return key if key in VALID_LOG_FILTERS else "all"
+
+
 def LogFilterTabs(active_filter: str = "all", oob: bool = False, student_id: str | None = None) -> FT:
     """Filter tabs for log review."""
+    active_filter = normalize_log_filter(active_filter)
     filters = [
         {"key": "all", "label": "All Logs"},
         {"key": "pending", "label": "Pending"},
@@ -101,9 +111,36 @@ def LogCard(log: dict, show_checkbox: bool = True) -> FT:
     )
 
 
+def EmptyLogsState(active_filter: str = "all") -> FT:
+    """Friendly empty state for filtered supervisor logs."""
+    active_filter = normalize_log_filter(active_filter)
+    messages = {
+        "pending": ("No pending reviews", "Every submitted log in this view has already been handled."),
+        "verified": ("No verified logs yet", "Verified logs will appear here after review."),
+        "flagged": ("No flagged logs", "Logs needing correction will appear here."),
+        "all": ("No logs found", "Student submissions will appear here once logs are created."),
+    }
+    title, body = messages.get(active_filter, messages["all"])
+
+    return Card(
+        Div(
+            Div(
+                Icon("journal-check", cls="fs-1 text-primary"),
+                cls="rounded-circle bg-primary-subtle d-inline-flex align-items-center justify-content-center mb-3",
+                style="width: 72px; height: 72px;",
+            ),
+            H5(title, cls="fw-bold mb-2"),
+            P(body, cls="text-muted mb-0"),
+            cls="text-center py-5 px-3",
+        ),
+        cls="bg-white border-0 shadow-sm",
+    )
+
+
 def StudentLogsPage(logs: list | None = None, active_filter: str = "all", student_id: str | None = None) -> FT:
     """Main student logs review page."""
     logs = logs or []
+    active_filter = normalize_log_filter(active_filter)
 
     return Form(
         Div(
@@ -123,7 +160,10 @@ def StudentLogsPage(logs: list | None = None, active_filter: str = "all", studen
         ),
         LogFilterTabs(active_filter=active_filter, student_id=student_id),
         Div(id="logs-feedback"),
-        Div(*[LogCard(log) for log in logs], id="logs-container"),
+        Div(
+            *([LogCard(log) for log in logs] if logs else [EmptyLogsState(active_filter)]),
+            id="logs-container",
+        ),
         cls="student-logs-page",
         hx_post="/supervisor/logs/verify-selected",
         hx_target="#logs-feedback",
