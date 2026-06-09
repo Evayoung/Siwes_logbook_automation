@@ -354,6 +354,14 @@ python scripts/manual_seed.py
 
 The wizard asks for supervisors, students, and SIWES center details one by one. Press Enter to accept the default values shown in brackets.
 
+For bulk entry, edit `data/manual_seed_template.json`, then run:
+
+```bash
+python scripts/manual_seed.py --json data/manual_seed_template.json
+```
+
+The JSON file can contain many supervisors and many students. Existing records are updated by email, so the command is safe to run again after corrections.
+
 ### Step 8: Run the Application
 
 ```bash

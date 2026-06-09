@@ -2,10 +2,10 @@
 name = "siwes-logbook"
 version = "0.1.0"
 description = "Automated SIWES Logbook System with offline-first PWA"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
-    "fasthtml>=0.6.0",
-    "faststrap>=0.5.3",
+    "python-fasthtml>=0.12.33",
+    "faststrap>=0.5.6.post3",
     "sqlalchemy>=2.0.25",
     "alembic>=1.13.0",
     "psycopg2-binary>=2.9.9",
@@ -13,6 +13,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "httpx>=0.26.0",
     "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "passlib>=1.7.4",
 ]
 
 [project.optional-dependencies]

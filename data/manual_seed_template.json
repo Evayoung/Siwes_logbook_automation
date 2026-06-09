@@ -1,0 +1,31 @@
+{
+  "supervisors": [
+    {
+      "full_name": "Dr. Example Supervisor",
+      "email": "example.supervisor@university.edu.ng",
+      "password": "password123",
+      "department": "Computer Science"
+    }
+  ],
+  "students": [
+    {
+      "full_name": "Example Student",
+      "email": "example.student@student.university.edu.ng",
+      "password": "password123",
+      "matric_number": "U/23/CS/0001",
+      "department": "Computer Science",
+      "supervisor_email": "example.supervisor@university.edu.ng",
+      "siwes_start_date": "2026-06-08",
+      "siwes_end_date": "2026-11-27",
+      "placement": {
+        "company_name": "Example Tech Center",
+        "company_address": "12 Example Road, Lagos",
+        "supervisor_name": "Mr. Industry Mentor",
+        "supervisor_email": "mentor@example.com",
+        "latitude": 6.4549,
+        "longitude": 3.3947,
+        "radius_meters": 500
+      }
+    }
+  ]
+}
