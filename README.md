@@ -407,6 +407,8 @@ LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
 ```
 
+Use `.env.production.example` as the FastAPI Cloud checklist. Do not import the full local `.env` directly because it contains local-only values such as `DATABASE_URL_DEV`; if `APP_NAME` is used, quote it when it contains spaces.
+
 `AUTO_INIT_DB=False` prevents the web process from mutating Supabase schema during startup. Run schema setup through `scripts/migrate_to_supabase.py` instead.
 
 ---

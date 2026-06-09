@@ -1,3 +1,4 @@
+fastapi[standard]>=0.115.0
 python-fasthtml>=0.12.33
 faststrap>=0.5.6.post3
 sqlalchemy>=2.0.25
