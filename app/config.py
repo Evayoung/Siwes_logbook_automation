@@ -25,8 +25,6 @@ class Settings(BaseSettings):
         session_lifetime_hours: Session expiration time in hours.
         geofence_default_radius_meters: Default geofence radius.
         geofence_tolerance_meters: GPS accuracy tolerance buffer.
-        daily_api_key: Legacy Daily.co API key (kept for backward compatibility).
-        daily_domain: Legacy Daily.co domain (kept for backward compatibility).
         debug: Enable debug mode (verbose logging, auto-reload).
         host: Server bind address.
         port: Server port number.
@@ -47,6 +45,10 @@ class Settings(BaseSettings):
         default="sqlite:///./siwes_dev.db",
         description="SQLite connection URL for development"
     )
+    supabase_url: Optional[str] = Field(
+        default=None,
+        description="Supabase PostgreSQL connection URL"
+    )
     
     # Security
     secret_key: str = Field(
@@ -66,6 +68,12 @@ class Settings(BaseSettings):
         le=30,
         description="How many days offline cached login resume is allowed after last successful online auth"
     )
+    offline_sync_grace_days: int = Field(
+        default=3,
+        ge=1,
+        le=14,
+        description="How many days an offline-created log may wait before syncing"
+    )
     
     # Geofencing
     geofence_default_radius_meters: int = Field(
@@ -81,15 +89,6 @@ class Settings(BaseSettings):
         description="GPS accuracy tolerance (0-200 meters)"
     )
     
-    # Legacy Daily.co API (deprecated; LiveKit is the active provider)
-    daily_api_key: Optional[str] = Field(
-        default=None,
-        description="Legacy Daily.co API key (deprecated)"
-    )
-    daily_domain: Optional[str] = Field(
-        default=None,
-        description="Legacy Daily.co domain (deprecated)"
-    )
     call_ring_timeout_seconds: int = Field(
         default=75,
         ge=15,
@@ -130,6 +129,22 @@ class Settings(BaseSettings):
         default="development",
         description="Deployment environment"
     )
+    auto_init_db: bool = Field(
+        default=False,
+        description="Run create_all/schema patches during app startup. Keep false in production."
+    )
+    db_pool_size: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="SQLAlchemy pool size for PostgreSQL deployments"
+    )
+    db_max_overflow: int = Field(
+        default=5,
+        ge=0,
+        le=50,
+        description="SQLAlchemy max overflow connections for PostgreSQL deployments"
+    )
     
     app_name: str = Field(
         default="SIWES Logbook Automation System",
@@ -155,6 +170,14 @@ class Settings(BaseSettings):
                 "Generate with: python -c 'import secrets; print(secrets.token_hex(32))'"
             )
         return v
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def normalize_debug(cls, v: object) -> object:
+        """Accept common deployment labels for DEBUG."""
+        if isinstance(v, str) and v.strip().lower() in {"release", "prod", "production"}:
+            return False
+        return v
     
     @property
     def db_url(self) -> str:
@@ -163,9 +186,21 @@ class Settings(BaseSettings):
         Returns:
             PostgreSQL URL for production, SQLite for development.
         """
+        if self.environment == "production" and self.supabase_url:
+            return self._normalize_database_url(self.supabase_url)
         if self.environment == "production":
-            return self.database_url
-        return self.database_url_dev
+            return self._normalize_database_url(self.database_url)
+        return self._normalize_database_url(self.database_url_dev)
+
+    @staticmethod
+    def _normalize_database_url(url: str) -> str:
+        """Normalize external Postgres URLs for SQLAlchemy."""
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        if "supabase" in url.lower() and "sslmode=" not in url.lower():
+            separator = "&" if "?" in url else "?"
+            return f"{url}{separator}sslmode=require"
+        return url
     
     model_config = SettingsConfigDict(
         env_file=".env",

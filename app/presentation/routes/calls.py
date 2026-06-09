@@ -8,7 +8,7 @@ import json
 from typing import Optional
 
 from app.infrastructure.security.session import require_auth, require_role
-from app.application.services.daily import DailyService
+from app.application.services.daily import LiveKitService
 from faststrap.presets import hx_redirect, hx_trigger
 from app.domain.models.call import CallLog
 from app.domain.models.user import UserRole, User
@@ -430,14 +430,18 @@ def register_call_routes(app):
         # Get current user
         # DB session is injected by DBSessionMiddleware
         db = request.state.db if hasattr(request.state, 'db') else None
+        created_local_session = False
         if not db:
             from app.infrastructure.database.connection import SessionLocal
             db = SessionLocal()
+            created_local_session = True
         
         from app.domain.models.user import User
         
         current_user = db.query(User).filter(User.id == request.session["user_id"]).first()
         if not current_user:
+            if created_local_session:
+                db.close()
             return JSONResponse(
                 {"error": "User not found"},
                 status_code=404,
@@ -446,6 +450,8 @@ def register_call_routes(app):
         
         # Only students and supervisors can initiate calls
         if current_user.role not in [UserRole.STUDENT, UserRole.SUPERVISOR]:
+            if created_local_session:
+                db.close()
             return JSONResponse(
                 {"error": "Unauthorized role"},
                 status_code=403,
@@ -496,7 +502,7 @@ def register_call_routes(app):
                     )
 
             # Create LiveKit room handle
-            daily_service = DailyService()
+            daily_service = LiveKitService()
             room = daily_service.create_room(
                 student_id=student_id,
                 supervisor_id=supervisor_id,
@@ -586,6 +592,9 @@ def register_call_routes(app):
                 {"error": str(e)},
                 status_code=500
             )
+        finally:
+            if created_local_session:
+                db.close()
     
     @app.post("/api/calls/{call_id}/accept")
     @require_auth()
@@ -808,7 +817,7 @@ def register_call_routes(app):
             db.commit()
         
         # Generate meeting token for security
-        daily_service = DailyService()
+        daily_service = LiveKitService()
         try:
             token = daily_service.create_meeting_token(
                 room_name=room_name,
@@ -885,7 +894,7 @@ def register_call_routes(app):
             db.commit()
         
         # Generate meeting token for security
-        daily_service = DailyService()
+        daily_service = LiveKitService()
         try:
             token = daily_service.create_meeting_token(
                 room_name=room_name,
@@ -979,7 +988,7 @@ def register_call_routes(app):
         
         # LiveKit rooms are ephemeral; delete_room is a no-op.
         try:
-            daily_service = DailyService()
+            daily_service = LiveKitService()
             daily_service.delete_room(call_log.room_name)
         except Exception as e:
             # Log error but don't fail the request

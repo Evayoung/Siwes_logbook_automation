@@ -19,8 +19,8 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 
 
-class DailyService:
-    """Backwards-compatible call service name; now uses LiveKit."""
+class LiveKitService:
+    """Call provider service for LiveKit rooms and participant tokens."""
 
     def __init__(self):
         settings = get_settings()
@@ -125,3 +125,6 @@ class DailyService:
         token_q = quote_plus(token) if token else ""
         # prejoin=false keeps user inside app flow with no extra login/name step.
         return f"{base}/?url={url}&room={room_name}&token={token_q}&prejoin=false"
+
+
+DailyService = LiveKitService

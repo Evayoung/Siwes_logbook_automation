@@ -314,11 +314,11 @@ def LogReviewPage(
                     ),
                     Button(
                         Span(
-                            Span(
-                                cls="spinner-border spinner-border-sm me-2 d-none",
-                                id="review-save-spinner",
-                                aria_hidden="true",
-                            ),
+	                            Span(
+	                                cls="spinner-border spinner-border-sm me-2 htmx-indicator",
+	                                id="review-save-spinner",
+	                                aria_hidden="true",
+	                            ),
                             "Save Review",
                         ),
                         variant="primary",
@@ -328,32 +328,15 @@ def LogReviewPage(
                     ),
                     cls="d-flex justify-content-end",
                 ),
-                hx_post=f"/supervisor/logs/review/{log_id}",
-                hx_target="body",
-                hx_swap="innerHTML",
-                id="review-form",
-            ),
-            Script(
-                """
-                (function () {
-                    const form = document.getElementById('review-form');
-                    const btn = document.getElementById('review-save-btn');
-                    const spinner = document.getElementById('review-save-spinner');
-                    if (!form || !btn) return;
-
-                    form.addEventListener('htmx:beforeRequest', function () {
-                        btn.setAttribute('disabled', 'disabled');
-                        if (spinner) spinner.classList.remove('d-none');
-                    });
-                    form.addEventListener('htmx:afterRequest', function () {
-                        btn.removeAttribute('disabled');
-                        if (spinner) spinner.classList.add('d-none');
-                    });
-                })();
-                """
-            ),
-            cls="mb-4 bg-white",
-        ),
+	                hx_post=f"/supervisor/logs/review/{log_id}",
+	                hx_target="body",
+	                hx_swap="innerHTML",
+	                hx_indicator="#review-save-spinner",
+	                hx_disabled_elt="#review-save-btn",
+	                id="review-form",
+	            ),
+	            cls="mb-4 bg-white",
+	        ),
         cls="log-review-page mx-auto px-3",
         style="max-width: 900px;",
     )

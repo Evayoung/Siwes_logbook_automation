@@ -80,8 +80,10 @@ async def no_store_middleware(request, call_next):
     return response
 
 
-# Initialize database
-init_db()
+# Initialize database in development or when explicitly enabled.
+# Production deployments should run scripts/migrate_to_supabase.py instead.
+if settings.environment != "production" or settings.auto_init_db:
+    init_db()
 
 # Setup routes
 setup_auth_routes(app)

@@ -60,7 +60,7 @@ class ReviewService:
             Updated DailyLog instance, or None if not found
         
         Raises:
-            ValueError: If log is already verified or flagged
+            ValueError: If log cannot be found or updated
         
         Example:
             >>> log = service.verify_log(
@@ -74,13 +74,6 @@ class ReviewService:
         
         if not log:
             return None
-        
-        # Check current status
-        if log.status == LogStatus.VERIFIED:
-            raise ValueError("Log is already verified")
-        
-        if log.status == LogStatus.FLAGGED:
-            raise ValueError("Cannot verify a flagged log. Unflag it first.")
         
         # Update log
         updates = {
@@ -108,9 +101,6 @@ class ReviewService:
         Returns:
             Updated DailyLog instance, or None if not found
         
-        Raises:
-            ValueError: If log is already verified
-        
         Example:
             >>> log = service.flag_log(
             ...     log_id=log.id,
@@ -123,10 +113,6 @@ class ReviewService:
         
         if not log:
             return None
-        
-        # Check current status
-        if log.status == LogStatus.VERIFIED:
-            raise ValueError("Cannot flag a verified log")
         
         # Update log
         updates = {
@@ -165,7 +151,8 @@ class ReviewService:
         updates = {
             "status": LogStatus.PENDING_REVIEW,
             "reviewer_id": supervisor_id,
-            "reviewed_at": datetime.utcnow()
+            "reviewed_at": datetime.utcnow(),
+            "reviewer_comment": None,
         }
         
         return self.log_repo.update(log_id, updates)

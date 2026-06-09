@@ -717,8 +717,7 @@ def setup_student_routes(app: FastHTML):
             return JSONResponse({"error": "No active placement"}, status_code=400)
             
         try:
-             # Map JSON keys to Service keys
-             log_data = {
+            log_data = {
                 "client_uuid": data.get("client_uuid"),
                 "placement_id": placement.id,
                 "log_date": data.get("log_date"),
@@ -726,16 +725,17 @@ def setup_student_routes(app: FastHTML):
                 "latitude": data.get("latitude"),
                 "longitude": data.get("longitude"),
                 "skills_learned": data.get("skills_learned"),
-                "challenges": data.get("challenges")
-             }
-             
-             sync_service = SyncService(db)
-             result = sync_service.sync_logs(current_user.id, [log_data])
-             
-             if result["failed"] > 0:
-                 return JSONResponse({"error": result["errors"]}, status_code=500)
-                 
-             return JSONResponse({"status": "synced", "client_uuid": data.get("client_uuid")})
+                "challenges": data.get("challenges"),
+                "queued_at": data.get("queued_at"),
+            }
+
+            sync_service = SyncService(db)
+            result = sync_service.sync_logs(current_user.id, [log_data])
+
+            if result["failed"] > 0:
+                return JSONResponse({"error": result["errors"]}, status_code=500)
+
+            return JSONResponse({"status": "synced", "client_uuid": data.get("client_uuid")})
              
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)

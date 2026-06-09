@@ -9,8 +9,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 
-from app.infrastructure.database.connection import Base
-from app.domain.models.base import TimestampMixin
+from app.domain.models.base import Base, TimestampMixin
 
 
 class CallLog(Base, TimestampMixin):

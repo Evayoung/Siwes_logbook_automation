@@ -154,13 +154,17 @@ def register_chat_routes(app):
             
         # Get DB Session
         db = request.state.db if hasattr(request.state, 'db') else None
+        created_local_session = False
         if not db:
             from app.infrastructure.database.connection import SessionLocal
             db = SessionLocal()
+            created_local_session = True
             
         # Get User
         current_user = db.query(User).filter(User.id == request.session["user_id"]).first()
         if not current_user:
+            if created_local_session:
+                db.close()
             return JSONResponse({"error": "User not found"}, status_code=404)
 
         try:
@@ -279,3 +283,6 @@ def register_chat_routes(app):
             import traceback
             traceback.print_exc()
             return JSONResponse({"error": str(e)}, status_code=500)
+        finally:
+            if created_local_session:
+                db.close()

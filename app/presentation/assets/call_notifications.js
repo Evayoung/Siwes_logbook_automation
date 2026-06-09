@@ -7,6 +7,12 @@
     let olderLoadSnapshot = null;
     const recentEventKeys = new Map();
 
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = String(value || '');
+        return div.innerHTML;
+    }
+
     function showToast(message, variant = 'info') {
         const map = {
             success: 'text-bg-success',
@@ -29,7 +35,7 @@
         toastEl.setAttribute('aria-atomic', 'true');
         toastEl.innerHTML = `
             <div class="d-flex">
-                <div class="toast-body">${message}</div>
+	                <div class="toast-body">${escapeHtml(message)}</div>
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
             </div>
         `;
@@ -214,19 +220,22 @@
                 if (!items || items.length === 0) continue;
                 const meta = typeMeta(type);
                 const rows = items.map(item => {
-                    const preview = (item.message || '').replace(/[<>]/g, '').slice(0, 80);
-                    return `
-                        <a class="topbar-notification-item" href="${item.action_url || '#'}">
-                            <div class="d-flex align-items-start gap-2">
-                                <i class="bi ${meta.icon} ${meta.accent} mt-1"></i>
-                                <div class="flex-grow-1">
-                                    <div class="fw-semibold small">${item.title || 'Notification'}</div>
-                                    <div class="small text-muted">${preview}</div>
-                                    <div class="meta mt-1">${new Date(item.time).toLocaleString()}</div>
-                                </div>
-                            </div>
-                        </a>
-                    `;
+	                    const preview = escapeHtml((item.message || '').slice(0, 80));
+	                    const title = escapeHtml(item.title || 'Notification');
+	                    const itemTime = escapeHtml(new Date(item.time).toLocaleString());
+	                    const href = escapeHtml(String(item.action_url || '#').startsWith('/') ? item.action_url : '#');
+	                    return `
+	                        <a class="topbar-notification-item" href="${href}">
+	                            <div class="d-flex align-items-start gap-2">
+	                                <i class="bi ${meta.icon} ${meta.accent} mt-1"></i>
+	                                <div class="flex-grow-1">
+	                                    <div class="fw-semibold small">${title}</div>
+	                                    <div class="small text-muted">${preview}</div>
+	                                    <div class="meta mt-1">${itemTime}</div>
+	                                </div>
+	                            </div>
+	                        </a>
+	                    `;
                 }).join('');
                 sections.push(`
                     <div class="topbar-notification-group">
@@ -427,7 +436,7 @@
             refreshNotificationBell();
         } catch (error) {
             console.error('[CALL] Action failed:', error);
-            alert(error.message || `Unable to ${action} call`);
+            showToast(error.message || `Unable to ${action} call`, 'danger');
             if (acceptBtn) acceptBtn.removeAttribute('disabled');
             if (declineBtn) declineBtn.removeAttribute('disabled');
         }
@@ -451,7 +460,7 @@
             <div class="d-flex justify-content-start mb-3">
                 <div class="d-flex flex-column align-items-start">
                     <div class="p-3 bg-light text-dark rounded-3 rounded-bottom-left-0" style="max-width: 80%; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                        ${data.text}
+	                        ${escapeHtml(data.text)}
                     </div>
                     <div class="text-muted small mt-1 mx-1" style="font-size: 0.7rem;">${data.time}</div>
                 </div>
@@ -578,7 +587,7 @@
                 ? event.detail.message
                 : 'Unable to process call action.';
             console.error('[CALL] ' + message);
-            alert(message);
+            showToast(message, 'danger');
         });
 
         document.body.addEventListener('new_message_notification', function () {

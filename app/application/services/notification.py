@@ -139,7 +139,7 @@ class NotificationService:
             title=title,
             message=message,
             related_log_id=log_id,
-            action_url=f"/logs/{log_id}"
+            action_url="/student/logbook"
         )
     
     def notify_deadline_approaching(
@@ -170,7 +170,7 @@ class NotificationService:
             notification_type=NotificationType.DEADLINE_APPROACHING,
             title="Deadline Approaching",
             message=f"Week {week_number} deadline is in {days_remaining} days",
-            action_url="/logbook"
+            action_url="/student/logbook"
         )
     
     def notify_call_request(
@@ -232,7 +232,7 @@ class NotificationService:
             notification_type=NotificationType.MESSAGE_RECEIVED,
             title=f"New message from {from_user_name}",
             message=message_preview[:100],
-            action_url="/chat"
+            action_url="/student/communication"
         )
     
     def get_user_notifications(

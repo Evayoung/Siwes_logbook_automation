@@ -68,7 +68,8 @@ class LogService:
         longitude: float,
         client_uuid: Optional[str] = None,
         skills_learned: Optional[str] = None,
-        challenges: Optional[str] = None
+        challenges: Optional[str] = None,
+        created_offline_at: Optional[datetime] = None
     ) -> DailyLog:
         """Create a new daily log with geofence validation.
         
@@ -108,6 +109,10 @@ class LogService:
             existing_log = self.log_repo.get_by_client_uuid(client_uuid)
             if existing_log:
                 return existing_log
+
+        existing_day_log = self.log_repo.get_log_by_date(student_id, log_date)
+        if existing_day_log:
+            return existing_day_log
         
         # Get placement with geofence
         placement = self.placement_repo.get_placement_with_geofence(placement_id)
@@ -152,6 +157,7 @@ class LogService:
             "distance_from_geofence": distance_from_geofence,
             "location_status": location_status,
             "status": LogStatus.PENDING_REVIEW,
+            "created_offline_at": created_offline_at,
             "synced_at": datetime.utcnow(),
             "client_uuid": client_uuid
         }

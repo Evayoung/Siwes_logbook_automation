@@ -20,7 +20,7 @@ Example:
 """
 
 from typing import Optional, Dict, Any
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.domain.models.user import User, UserRole
@@ -229,6 +229,8 @@ class AuthService:
             # Rehash with current work factor
             new_hash = hash_password(password)
             self.user_repo.update(user.id, {"password_hash": new_hash})
+
+        self.user_repo.update(user.id, {"last_login_at": datetime.utcnow()})
         
         # Create session
         session_data = create_session(user)

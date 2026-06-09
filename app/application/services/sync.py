@@ -13,11 +13,12 @@ Example:
 """
 
 from typing import List, Dict, Any
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.application.services.log import LogService
 from app.infrastructure.repositories.log import LogRepository
+from app.config import get_settings
 
 
 class SyncService:
@@ -81,6 +82,7 @@ class SyncService:
         skipped = 0
         failed = 0
         errors = []
+        settings = get_settings()
         
         for log_data in offline_logs:
             try:
@@ -99,6 +101,18 @@ class SyncService:
                     log_date = date.fromisoformat(log_date_str)
                 else:
                     log_date = log_date_str
+
+                queued_at = self._parse_client_datetime(
+                    log_data.get("queued_at") or log_data.get("created_offline_at")
+                )
+                if queued_at:
+                    if queued_at.date() != log_date:
+                        raise ValueError("Offline log date does not match the queued date")
+                    max_age = timedelta(days=settings.offline_sync_grace_days)
+                    if datetime.utcnow() - queued_at > max_age:
+                        raise ValueError(
+                            f"Offline log sync window has expired ({settings.offline_sync_grace_days} days)"
+                        )
                 
                 # Create log
                 activity_description = log_data.get("activity_description") or log_data.get("activities")
@@ -114,7 +128,8 @@ class SyncService:
                     longitude=log_data["longitude"],
                     client_uuid=client_uuid,
                     skills_learned=log_data.get("skills_learned"),
-                    challenges=log_data.get("challenges")
+                    challenges=log_data.get("challenges"),
+                    created_offline_at=queued_at
                 )
                 
                 synced += 1
@@ -129,6 +144,24 @@ class SyncService:
             "failed": failed,
             "errors": errors
         }
+
+    @staticmethod
+    def _parse_client_datetime(value: Any) -> datetime | None:
+        """Parse an ISO timestamp from the browser into naive UTC."""
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None)
+        if not isinstance(value, str):
+            return None
+        try:
+            normalized = value.strip().replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo:
+                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return parsed
+        except Exception:
+            return None
     
     def get_unsynced_logs(self, student_id: str) -> List[Dict[str, Any]]:
         """Get all unsynced logs for a student.

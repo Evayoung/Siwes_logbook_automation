@@ -219,6 +219,7 @@ class DailyLog(Base, TimestampMixin):
     # Composite indexes for common queries
     __table_args__ = (
         Index('idx_student_date', 'student_id', 'log_date'),
+        Index('uq_daily_logs_student_date', 'student_id', 'log_date', unique=True),
         Index('idx_student_week', 'student_id', 'week_number'),
         Index('idx_status_reviewed', 'status', 'reviewed_at'),
         Index('idx_placement_date', 'placement_id', 'log_date'),

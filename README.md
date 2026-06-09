@@ -214,10 +214,10 @@ erDiagram
 - **Bootstrap Icons** - Icon library
 
 ### PWA Features
-- **Service Worker** - Offline asset caching
+- **Faststrap PWA** - Manifest, generated service worker, and offline shell
 - **IndexedDB** - Client-side database
 - **Web App Manifest** - Installable app metadata
-- **Background Sync API** - Automatic synchronization
+- **Deferred Sync** - Queued offline logs sync automatically when the app returns online
 
 ### Development Tools
 - **Python 3.10+**
@@ -260,9 +260,9 @@ Before installing, ensure you have the following:
    - Download: [https://www.python.org/downloads/](https://www.python.org/downloads/)
    - During installation, check "Add Python to PATH"
 
-2. **PostgreSQL 14 or higher**
-   - Download: [https://www.postgresql.org/download/](https://www.postgresql.org/download/)
-   - Remember your postgres password during installation
+2. **PostgreSQL/Supabase**
+   - Local development may use SQLite or PostgreSQL.
+   - Production uses Supabase PostgreSQL via `SUPABASE_URL`.
 
 3. **Git** (optional, for cloning)
    - Download: [https://git-scm.com/downloads](https://git-scm.com/downloads)
@@ -300,65 +300,61 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure PostgreSQL Database
-
-#### 4.1 Create Database
-
-Open PostgreSQL command line (psql) or pgAdmin and run:
-
-```sql
-CREATE DATABASE siwes_db;
-CREATE USER siwes_user WITH PASSWORD 'your_secure_password';
-GRANT ALL PRIVILEGES ON DATABASE siwes_db TO siwes_user;
-```
-
-#### 4.2 Configure Environment Variables
+### Step 4: Configure Environment Variables
 
 Create a `.env` file in the project root (copy from `.env.example`):
 
 ```env
 # Database Configuration
-DATABASE_URL=postgresql://siwes_user:your_secure_password@localhost:5432/siwes_db
+DATABASE_URL_DEV=sqlite:///./siwes_dev.db
+SUPABASE_URL=postgresql://postgres.your-project:password@aws-0-region.pooler.supabase.com:6543/postgres
 
 # Security
 SECRET_KEY=your-secret-key-here-change-in-production
 
+# LiveKit Calls
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_API_KEY=your-livekit-api-key
+LIVEKIT_API_SECRET=your-livekit-api-secret
+
 # Application
 DEBUG=True
 ENVIRONMENT=development
+AUTO_INIT_DB=False
 
 # Server
 HOST=0.0.0.0
 PORT=5031
 ```
 
-### Step 5: Initialize Database
+### Step 5: Initialize Supabase Database
+
+```bash
+python scripts/migrate_to_supabase.py --seed
+```
+
+Use `--reset --seed` only when you intentionally want to wipe and recreate the Supabase public schema.
+
+### Step 6: Local Reset/Seed
 
 ```bash
 python scripts/reset_db.py
-```
-
-You should see:
-```
-[*] Initializing database...
-[SUCCESS] Database initialized successfully!
-```
-
-### Step 6: Seed Database
-
-```bash
 python scripts/seed_real_data.py
 ```
 
-Expected output:
-```
-[*] Seeding database...
-[+] Creating students...
-[+] Creating supervisors...
-[SUCCESS] Database seeded successfully!
+`scripts/reset_db.py` refuses to reset production/Supabase databases unless `ALLOW_DESTRUCTIVE_RESET=YES_I_UNDERSTAND` is set.
+
+### Step 7: Add Real Data Manually
+
+For a simple prompt-based setup, run:
+
+```bash
+python scripts/manual_seed.py
 ```
 
-### Step 7: Run the Application
+The wizard asks for supervisors, students, and SIWES center details one by one. Press Enter to accept the default values shown in brackets.
+
+### Step 8: Run the Application
 
 ```bash
 python main.py
@@ -372,12 +368,38 @@ INFO:     Uvicorn running on http://0.0.0.0:5031
 INFO:     Application startup complete.
 ```
 
-### Step 8: Access the Application
+### Step 9: Access the Application
 
 Open your browser and navigate to:
 - **Landing Page**: http://localhost:5031
 - **Login**: http://localhost:5031/login
 - **Health Check**: http://localhost:5031/health
+
+---
+
+## Deployment Notes
+
+FastAPI Cloud is the recommended hosting target for this FastHTML/Faststrap app.
+
+Before deploying:
+
+```bash
+python scripts/migrate_to_supabase.py --seed
+```
+
+Production environment variables:
+
+```env
+ENVIRONMENT=production
+AUTO_INIT_DB=False
+SUPABASE_URL=postgresql://...
+SECRET_KEY=...
+LIVEKIT_URL=wss://...
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+```
+
+`AUTO_INIT_DB=False` prevents the web process from mutating Supabase schema during startup. Run schema setup through `scripts/migrate_to_supabase.py` instead.
 
 ---
 
@@ -452,7 +474,8 @@ siwes-logbook-automation/
 │       ├── assets/          # CSS, JS, PWA files
 │       │   ├── custom.css
 │       │   ├── anchor-uni.jpeg
-│       │   ├── sw.js        # Service Worker
+│       │   ├── offline_log_sync.js
+│       │   ├── offline_resume.js
 │       │   └── pwa_install_prompt.js
 │       ├── components/      # Reusable UI components
 │       │   ├── domain/

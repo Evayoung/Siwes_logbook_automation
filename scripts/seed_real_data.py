@@ -25,8 +25,8 @@ from app.domain.models.user import User, UserRole, StudentProfile, SupervisorPro
 from app.domain.models.placement import IndustrialPlacement, Geofence
 from app.infrastructure.security.password import hash_password as get_password_hash
 
-DEFAULT_SIWES_START = date(2026, 1, 5)
-DEFAULT_SIWES_END = date(2026, 6, 26)
+DEFAULT_SIWES_START = date(2026, 6, 8)
+DEFAULT_SIWES_END = date(2026, 11, 27)
 DEFAULT_INSTITUTION = "University of Lagos"
 
 

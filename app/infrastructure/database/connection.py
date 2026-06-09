@@ -50,8 +50,8 @@ else:
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,  # Verify connections before using
-        pool_size=10,
-        max_overflow=20,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
     echo=settings.debug,
     )
 
@@ -110,10 +110,26 @@ def _apply_schema_patches() -> None:
         if "setting_notifications" not in student_profile_columns:
             patches.append("ALTER TABLE student_profiles ADD COLUMN setting_notifications BOOLEAN NOT NULL DEFAULT TRUE")
 
+    if "daily_logs" in table_names:
+        daily_log_columns = {c["name"] for c in inspector.get_columns("daily_logs")}
+        if "created_offline_at" not in daily_log_columns:
+            patches.append("ALTER TABLE daily_logs ADD COLUMN created_offline_at TIMESTAMP NULL")
+
     if patches:
         with engine.begin() as conn:
             for ddl in patches:
                 conn.execute(text(ddl))
+
+    if "daily_logs" in table_names:
+        index_names = {idx["name"] for idx in inspector.get_indexes("daily_logs")}
+        if "uq_daily_logs_student_date" not in index_names:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX uq_daily_logs_student_date "
+                        "ON daily_logs (student_id, log_date)"
+                    )
+                )
 
 
 def drop_db() -> None:

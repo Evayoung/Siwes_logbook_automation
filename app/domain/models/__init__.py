@@ -30,6 +30,7 @@ from .user import User, UserRole, StudentProfile, SupervisorProfile
 from .placement import IndustrialPlacement, Geofence
 from .log import DailyLog, LogStatus, LocationStatus
 from .chat import ChatMessage, Notification, NotificationType
+from .call import CallLog
 
 __all__ = [
     # Base classes
@@ -52,4 +53,5 @@ __all__ = [
     "ChatMessage",
     "Notification",
     "NotificationType",
+    "CallLog",
 ]
