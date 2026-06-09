@@ -1,5 +1,13 @@
 // SSE Notification Listener for Call Notifications
 (function () {
+    if (window.__siwesNotificationsScriptLoaded) {
+        if (typeof window.__siwesInitializeSSE === 'function') {
+            window.__siwesInitializeSSE();
+        }
+        return;
+    }
+    window.__siwesNotificationsScriptLoaded = true;
+
     let eventSource = null;
     let reconnectTimer = null;
     let currentCallId = null;
@@ -110,6 +118,11 @@
 
     function initializeSSE() {
         if (!navigator.onLine) return;
+        if (window.eventSource && window.eventSource.readyState !== EventSource.CLOSED) {
+            eventSource = window.eventSource;
+            window.__siwesSseInitialized = true;
+            return;
+        }
         if (window.__siwesSseInitialized) return;
         window.__siwesSseInitialized = true;
 
@@ -169,6 +182,7 @@
             scheduleSseReconnect();
         };
     }
+    window.__siwesInitializeSSE = initializeSSE;
 
     async function refreshNotificationBell() {
         if (!navigator.onLine) return;

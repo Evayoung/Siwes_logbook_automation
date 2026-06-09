@@ -201,6 +201,8 @@ class Settings(BaseSettings):
         """Normalize external Postgres URLs for SQLAlchemy."""
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
+        if ".pooler.supabase.com:5432" in url:
+            url = url.replace(".pooler.supabase.com:5432", ".pooler.supabase.com:6543")
         if "supabase" in url.lower() and "sslmode=" not in url.lower():
             separator = "&" if "?" in url else "?"
             return f"{url}{separator}sslmode=require"
