@@ -9,6 +9,7 @@ import sys
 from fasthtml.common import *
 from starlette.middleware import Middleware
 from starlette.responses import RedirectResponse
+from app.infrastructure.cache_middleware import NoStoreMiddleware
 from app.infrastructure.database.middleware import DBSessionMiddleware
 from faststrap import add_bootstrap, mount_assets
 from faststrap.pwa import add_pwa
@@ -25,7 +26,10 @@ settings = get_settings()
 app = FastHTML(
     secret_key=settings.secret_key,
     session_cookie="siwes_session",
-    middleware=[Middleware(DBSessionMiddleware)]
+    middleware=[
+        Middleware(NoStoreMiddleware),
+        Middleware(DBSessionMiddleware),
+    ]
 )
 
 # Apply Faststrap theme
@@ -61,23 +65,6 @@ setup_siwes_defaults()
 
 # Mount static files for custom CSS and icon
 mount_assets(app, "app/presentation/assets", url_path="/assets")
-
-
-@app.middleware("http")
-async def no_store_middleware(request, call_next):
-    """Prevent browser caching of app pages so logout/back does not reveal stale protected screens."""
-    response = await call_next(request)
-    path = request.url.path
-
-    static_prefixes = ("/static/", "/assets/")
-    static_exact = {"/manifest.json", "/sw.js", "/favicon.ico", "/health"}
-    if path.startswith(static_prefixes) or path in static_exact:
-        return response
-
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
 
 
 # Initialize database in development or when explicitly enabled.
