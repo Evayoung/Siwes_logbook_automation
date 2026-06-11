@@ -14,7 +14,7 @@
     let notificationMenuOpen = false;
     let olderLoadSnapshot = null;
     const recentEventKeys = new Map();
-    const pollIntervalMs = 4500;
+    const pollIntervalMs = 1500;
     let pollTimer = null;
     let pollInFlight = false;
     const seenPollEvents = new Set(

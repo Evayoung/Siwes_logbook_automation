@@ -129,6 +129,24 @@ def _render_livekit_call_page(
                 .call-btn.danger { background: rgba(220, 53, 69, 0.95); }
                 .call-btn.active { background: rgba(13, 110, 253, 0.92); }
                 .call-status { padding: 0 16px 10px; text-align: center; color: #94a3b8; font-size: .9rem; }
+                .audio-unlock {
+                    position: fixed; inset: 0; z-index: 30;
+                    display: flex; align-items: center; justify-content: center;
+                    padding: 18px; background: rgba(15, 23, 42, 0.72);
+                    backdrop-filter: blur(12px);
+                }
+                .audio-unlock.d-none { display: none; }
+                .audio-card {
+                    width: min(420px, 100%); border-radius: 18px; padding: 22px;
+                    background: rgba(255, 255, 255, 0.96); color: #0f172a;
+                    box-shadow: 0 24px 70px rgba(0,0,0,.35);
+                    text-align: center;
+                }
+                .audio-card p { color: #475569; margin: 8px 0 18px; }
+                .audio-card button {
+                    border: none; border-radius: 999px; padding: 11px 18px;
+                    background: #2563eb; color: #fff; font-weight: 700;
+                }
                 @media (max-width: 900px) {
                     .call-stage { grid-template-columns: 1fr; }
                 }
@@ -167,6 +185,16 @@ def _render_livekit_call_page(
                 ),
                 Div(id="call-status", cls="call-status", *["Connecting..."]),
                 Div(
+                    Div(
+                        H3("Enable call audio", cls="mb-2"),
+                        P("Your browser blocked automatic audio. Tap below so microphone and speaker audio can start."),
+                        Button("Enable Audio", id="enable-audio-btn", type="button"),
+                        cls="audio-card",
+                    ),
+                    id="audio-unlock-overlay",
+                    cls="audio-unlock d-none",
+                ),
+                Div(
                     Button("Mute", id="mute-btn", cls="call-btn active"),
                     Button(
                         "Camera Off" if video_enabled else "Voice Mode",
@@ -197,6 +225,8 @@ def _render_livekit_call_page(
                 const muteBtn = document.getElementById('mute-btn');
                 const videoBtn = document.getElementById('video-btn');
                 const endBtn = document.getElementById('end-btn');
+                const audioOverlay = document.getElementById('audio-unlock-overlay');
+                const enableAudioBtn = document.getElementById('enable-audio-btn');
 
                 let redirecting = false;
                 let micEnabled = true;
@@ -209,6 +239,15 @@ def _render_livekit_call_page(
 
                 function setStatus(message) {{
                     if (statusEl) statusEl.textContent = message;
+                }}
+
+                function showAudioUnlock(message) {{
+                    if (message) setStatus(message);
+                    if (audioOverlay) audioOverlay.classList.remove('d-none');
+                }}
+
+                function hideAudioUnlock() {{
+                    if (audioOverlay) audioOverlay.classList.add('d-none');
                 }}
 
                 function goBack() {{
@@ -260,8 +299,64 @@ def _render_livekit_call_page(
                     el.playsInline = true;
                     if (track.kind === 'audio') {{
                         el.controls = false;
+                        el.muted = false;
                     }}
                     remoteMedia.appendChild(el);
+                    if (track.kind === 'audio' && el.play) {{
+                        el.play().then(hideAudioUnlock).catch(() => {{
+                            showAudioUnlock('Tap Enable Audio to hear the other participant.');
+                        }});
+                    }}
+                }}
+
+                async function enableAudioPlayback() {{
+                    try {{
+                        if (room.startAudio) await room.startAudio();
+                        const media = remoteMedia ? remoteMedia.querySelectorAll('audio,video') : [];
+                        for (const el of media) {{
+                            if (el.play) {{
+                                try {{ await el.play(); }} catch (_) {{}}
+                            }}
+                        }}
+                        hideAudioUnlock();
+                        setStatus(room.remoteParticipants.size > 0 ? 'Connected' : 'Waiting for other participant...');
+                    }} catch (e) {{
+                        console.error('[CALL] audio unlock failed', e);
+                        showAudioUnlock('Audio is still blocked. Check browser permissions and tap Enable Audio again.');
+                    }}
+                }}
+
+                async function enableLocalTracks() {{
+                    try {{
+                        await room.localParticipant.setMicrophoneEnabled(true);
+                        micEnabled = true;
+                        muteBtn.textContent = 'Mute';
+                        muteBtn.classList.add('active');
+                    }} catch (e) {{
+                        console.error('[CALL] microphone permission failed', e);
+                        micEnabled = false;
+                        muteBtn.textContent = 'Unmute';
+                        muteBtn.classList.remove('active');
+                        showAudioUnlock('Microphone permission is required. Allow microphone access, then tap Enable Audio.');
+                        throw e;
+                    }}
+
+                    if (callMode === 'video') {{
+                        try {{
+                            await room.localParticipant.setCameraEnabled(true);
+                            camEnabled = true;
+                            videoBtn.textContent = 'Camera Off';
+                            videoBtn.classList.add('active');
+                        }} catch (e) {{
+                            console.error('[CALL] camera permission failed', e);
+                            setStatus('Camera unavailable. Audio call is still active.');
+                            camEnabled = false;
+                            videoBtn.textContent = 'Camera On';
+                            videoBtn.classList.remove('active');
+                        }}
+                    }} else {{
+                        await room.localParticipant.setCameraEnabled(false);
+                    }}
                 }}
 
                 room.on(RoomEvent.TrackSubscribed, (track) => {{
@@ -315,6 +410,19 @@ def _render_livekit_call_page(
                 }});
 
                 endBtn?.addEventListener('click', endAndReturn);
+                enableAudioBtn?.addEventListener('click', async () => {{
+                    try {{
+                        await room.localParticipant.setMicrophoneEnabled(true);
+                        micEnabled = true;
+                        muteBtn.textContent = 'Mute';
+                        muteBtn.classList.add('active');
+                    }} catch (e) {{
+                        console.error('[CALL] microphone retry failed', e);
+                        showAudioUnlock('Microphone is still blocked. Please allow microphone permission in the browser.');
+                        return;
+                    }}
+                    await enableAudioPlayback();
+                }});
 
                 window.addEventListener('beforeunload', () => {{
                     try {{ navigator.sendBeacon(endUrl); }} catch (_) {{}}
@@ -324,12 +432,8 @@ def _render_livekit_call_page(
                     try {{
                         setStatus('Connecting to room...');
                         await room.connect(wsUrl, token);
-                        await room.localParticipant.setMicrophoneEnabled(true);
-                        if (callMode === 'video') {{
-                            await room.localParticipant.setCameraEnabled(true);
-                        }} else {{
-                            await room.localParticipant.setCameraEnabled(false);
-                        }}
+                        await enableLocalTracks();
+                        await enableAudioPlayback();
 
                         if (room.remoteParticipants.size > 0) {{
                             setStatus('Connected');

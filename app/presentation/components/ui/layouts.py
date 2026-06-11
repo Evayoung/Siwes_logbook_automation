@@ -170,6 +170,6 @@ def DashboardLayout(
         elements.append(bottom_nav)
     
     # SSE Notification Listener Script
-    elements.append(Script(src="/assets/call_notifications.js?v=20260612-1"))
+    elements.append(Script(src="/assets/call_notifications.js?v=20260612-2"))
     
     return Div(*elements, **kwargs)
