@@ -27,8 +27,7 @@ from app.infrastructure.security.password import hash_password
 
 
 def default_siwes_start() -> date:
-    today = date.today()
-    return today - timedelta(days=today.weekday())
+    return date(2026, 6, 10)
 
 
 def default_siwes_end(start: date) -> date:
@@ -64,7 +63,7 @@ def ask_date(label: str, default: date) -> date:
         try:
             return date.fromisoformat(raw)
         except ValueError:
-            print("  Use YYYY-MM-DD format, for example 2026-06-08.")
+            print("  Use YYYY-MM-DD format, for example 2026-06-10.")
 
 
 def ask_float(label: str, default: float) -> float:
@@ -186,7 +185,7 @@ def upsert_student_record(db, record: dict) -> None:
             user_id=student.id,
             matriculation_number=matric_number,
             department=department,
-            institution="University of Lagos",
+            institution="Anchor University",
             siwes_start_date=start_dt,
             siwes_end_date=end_dt,
         )

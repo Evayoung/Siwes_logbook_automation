@@ -4,14 +4,17 @@ from fasthtml.common import *
 from sqlalchemy.orm import Session
 import asyncio
 import json
+from datetime import datetime, timedelta
 from sqlalchemy import desc
 
 from app.infrastructure.security.session import require_auth
 from app.application.services.notifications import notification_manager
 from app.application.services.notification import NotificationService
 from app.domain.models.user import User, UserRole, StudentProfile
-from app.domain.models.chat import Notification
+from app.domain.models.chat import ChatMessage, Notification, NotificationType
+from app.domain.models.call import CallLog
 from app.infrastructure.database.connection import get_db_session
+from app.presentation.routes.calls import _build_join_url_for_user, _extract_initiator_id
 
 
 def register_notification_routes(app):
@@ -130,6 +133,112 @@ def register_notification_routes(app):
         ).update({"is_read": True}, synchronize_session=False)
         db.commit()
         return JSONResponse({"updated": updated})
+
+    @app.get("/notifications/poll")
+    @require_auth()
+    def notifications_poll(request: Request, db: Session = None, current_user: User = None):
+        """DB-backed notification polling for broker-free deployments.
+
+        This replaces browser dependence on long-lived SSE connections. It is
+        intentionally read-only; the bell/inbox keeps ownership of read state.
+        """
+        events = []
+
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
+        call_logs = db.query(CallLog).filter(
+            (CallLog.student_id == current_user.id) | (CallLog.supervisor_id == current_user.id),
+            CallLog.started_at >= recent_cutoff,
+            CallLog.status.in_(["ringing", "accepted", "declined", "missed", "cancelled"]),
+        ).order_by(desc(CallLog.started_at)).limit(10).all()
+
+        user_ids = set()
+        for call in call_logs:
+            user_ids.add(call.student_id)
+            user_ids.add(call.supervisor_id)
+        users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        user_by_id = {u.id: u for u in users}
+
+        for call in call_logs:
+            initiator_id = _extract_initiator_id(call.notes)
+            current_is_initiator = initiator_id == current_user.id
+            other_id = call.supervisor_id if current_user.id == call.student_id else call.student_id
+            other_user = user_by_id.get(other_id)
+
+            if call.status == "ringing" and not current_is_initiator:
+                events.append({
+                    "event_id": f"call:{call.id}:ringing",
+                    "type": "call_incoming",
+                    "call_id": call.id,
+                    "caller_id": initiator_id or other_id,
+                    "caller_name": other_user.full_name if other_user else "Unknown",
+                    "call_type": call.call_type or "video",
+                    "room_url": call.room_url,
+                })
+            elif current_is_initiator and call.status == "accepted":
+                events.append({
+                    "event_id": f"call:{call.id}:accepted",
+                    "type": "call_accepted",
+                    "call_id": call.id,
+                    "redirect_url": _build_join_url_for_user(
+                        current_user.role,
+                        call.room_name,
+                        call.call_type or "video",
+                    ),
+                })
+            elif current_is_initiator and call.status in {"declined", "missed", "cancelled"}:
+                events.append({
+                    "event_id": f"call:{call.id}:{call.status}",
+                    "type": "call_cancelled",
+                    "call_id": call.id,
+                    "reason": call.status,
+                })
+
+        unread_messages = db.query(ChatMessage).filter(
+            ChatMessage.receiver_id == current_user.id,
+            ChatMessage.is_read == False,
+        ).order_by(desc(ChatMessage.created_at)).limit(10).all()
+
+        for msg in reversed(unread_messages):
+            events.append({
+                "event_id": f"message:{msg.id}",
+                "type": "new_message",
+                "id": msg.id,
+                "text": msg.message_body,
+                "sender_id": msg.sender_id,
+                "time": msg.created_at.strftime("%I:%M %p") if msg.created_at else "",
+                "is_me": False,
+            })
+
+        notifications = db.query(Notification).filter(
+            Notification.user_id == current_user.id,
+            Notification.is_read == False,
+        ).order_by(desc(Notification.created_at)).limit(20).all()
+
+        for notif in reversed(notifications):
+            notif_type = notif.type
+            if notif_type in {NotificationType.LOG_VERIFIED, NotificationType.LOG_FLAGGED, NotificationType.LOG_REVIEWED}:
+                status = "pending"
+                if notif_type == NotificationType.LOG_VERIFIED:
+                    status = "verified"
+                elif notif_type == NotificationType.LOG_FLAGGED:
+                    status = "flagged"
+                events.append({
+                    "event_id": f"notification:{notif.id}",
+                    "type": "log_reviewed",
+                    "log_id": notif.related_log_id,
+                    "status": status,
+                    "message": notif.message,
+                })
+            elif notif_type == NotificationType.SYSTEM_ANNOUNCEMENT and "submitted" in (notif.message or "").lower():
+                student_name = (notif.message or "A student").split(" submitted", 1)[0]
+                events.append({
+                    "event_id": f"notification:{notif.id}",
+                    "type": "log_submitted",
+                    "student_name": student_name or "A student",
+                    "message": notif.message,
+                })
+
+        return JSONResponse({"events": events})
 
 
 def _notifications_enabled_for_user(user_id: str) -> bool:

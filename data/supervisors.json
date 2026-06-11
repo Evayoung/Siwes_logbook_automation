@@ -1,7 +1,7 @@
 [
   {
-    "full_name": "Dr. Ada Williams",
-    "email": "ada.williams@university.edu.ng",
+    "full_name": "Dr Abiodin Mustapha",
+    "email": "abiodin.mustapha@university.edu.ng",
     "password": "password123",
     "department": "Computer Science",
     "role": "supervisor",
@@ -16,16 +16,16 @@
     "is_active": true
   },
   {
-    "full_name": "Dr. Chioma Okeke",
-    "email": "c.okeke@university.edu.ng",
+    "full_name": "Mr U. M Umoren",
+    "email": "u.umoren@university.edu.ng",
     "password": "password123",
     "department": "Software Engineering",
     "role": "supervisor",
     "is_active": true
   },
   {
-    "full_name": "Dr. Tolu Akinyemi",
-    "email": "t.akinyemi@university.edu.ng",
+    "full_name": "Barr. Owuna Fenibo",
+    "email": "owuna.fenibo@university.edu.ng",
     "password": "password123",
     "department": "Electrical Engineering",
     "role": "supervisor",
@@ -40,4 +40,3 @@
     "is_active": true
   }
 ]
-

@@ -1,8 +1,8 @@
 // SSE Notification Listener for Call Notifications
 (function () {
     if (window.__siwesNotificationsScriptLoaded) {
-        if (typeof window.__siwesInitializeSSE === 'function') {
-            window.__siwesInitializeSSE();
+        if (typeof window.__siwesStartNotificationPolling === 'function') {
+            window.__siwesStartNotificationPolling();
         }
         return;
     }
@@ -14,6 +14,12 @@
     let notificationMenuOpen = false;
     let olderLoadSnapshot = null;
     const recentEventKeys = new Map();
+    const pollIntervalMs = 4500;
+    let pollTimer = null;
+    let pollInFlight = false;
+    const seenPollEvents = new Set(
+        JSON.parse(localStorage.getItem('siwes_seen_poll_events') || '[]')
+    );
 
     function escapeHtml(value) {
         const div = document.createElement('div');
@@ -71,6 +77,7 @@
         try {
             const key = [
                 data.type || '',
+                data.event_id || '',
                 data.call_id || '',
                 data.status || '',
                 data.student_id || '',
@@ -88,6 +95,17 @@
             }
         } catch (_) {}
         return false;
+    }
+
+    function rememberPollEvent(eventId) {
+        if (!eventId) return false;
+        if (seenPollEvents.has(eventId)) return false;
+        seenPollEvents.add(eventId);
+        const values = Array.from(seenPollEvents).slice(-250);
+        seenPollEvents.clear();
+        values.forEach((value) => seenPollEvents.add(value));
+        localStorage.setItem('siwes_seen_poll_events', JSON.stringify(values));
+        return true;
     }
 
     function clearReconnectTimer() {
@@ -183,6 +201,65 @@
         };
     }
     window.__siwesInitializeSSE = initializeSSE;
+
+    function dispatchNotificationEvent(data) {
+        if (!data || isDuplicateEvent(data)) return;
+        switch (data.type) {
+            case 'call_incoming':
+                handleIncomingCall(data);
+                break;
+            case 'call_cancelled':
+                handleCallCancelled(data);
+                break;
+            case 'call_accepted':
+                handleCallAccepted(data);
+                break;
+            case 'new_message':
+                handleNewMessage(data);
+                break;
+            case 'log_submitted':
+                handleLogSubmitted(data);
+                break;
+            case 'log_reviewed':
+                handleLogReviewed(data);
+                break;
+        }
+    }
+
+    async function pollNotifications() {
+        if (!navigator.onLine || pollInFlight) return;
+        pollInFlight = true;
+        try {
+            const response = await fetch('/notifications/poll', {
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' },
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            const events = Array.isArray(data.events) ? data.events : [];
+            for (const event of events) {
+                if (event.event_id && !rememberPollEvent(event.event_id)) continue;
+                dispatchNotificationEvent(event);
+            }
+        } catch (error) {
+            console.warn('[POLL] Notification poll failed:', error);
+        } finally {
+            pollInFlight = false;
+        }
+    }
+
+    function startNotificationPolling() {
+        if (pollTimer) return;
+        pollNotifications();
+        pollTimer = setInterval(pollNotifications, pollIntervalMs);
+    }
+    window.__siwesStartNotificationPolling = startNotificationPolling;
+
+    function stopNotificationPolling() {
+        if (!pollTimer) return;
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
 
     async function refreshNotificationBell() {
         if (!navigator.onLine) return;
@@ -643,8 +720,8 @@
         initializeNetworkBadge();
         initializeTopbarNotificationUI();
         refreshNotificationBell();
-        // Initialize SSE connection
-        initializeSSE();
+        closeSSE();
+        startNotificationPolling();
         
         // Close SSE before any HTMX navigation
         document.body.addEventListener('htmx:beforeNavigate', function () {
@@ -654,10 +731,11 @@
         
         window.addEventListener('offline', function () {
             closeSSE();
+            stopNotificationPolling();
         });
         window.addEventListener('online', function () {
             refreshNotificationBell();
-            initializeSSE();
+            startNotificationPolling();
         });
         setTimeout(() => scrollChatToBottom(true), 30);
     });

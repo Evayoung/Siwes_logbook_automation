@@ -25,9 +25,9 @@ from app.domain.models.user import User, UserRole, StudentProfile, SupervisorPro
 from app.domain.models.placement import IndustrialPlacement, Geofence
 from app.infrastructure.security.password import hash_password as get_password_hash
 
-DEFAULT_SIWES_START = date(2026, 6, 8)
-DEFAULT_SIWES_END = date(2026, 11, 27)
-DEFAULT_INSTITUTION = "University of Lagos"
+DEFAULT_SIWES_START = date(2026, 6, 10)
+DEFAULT_SIWES_END = date(2026, 12, 1)
+DEFAULT_INSTITUTION = "Anchor University"
 
 
 def parse_date(value: str | None, fallback: date) -> date:
