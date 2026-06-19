@@ -130,11 +130,21 @@ def get_current_user(request: Request, db: Session) -> Optional[User]:
         except Exception:
             pass
 
-        retry_db = SessionLocal()
-        request.state.db = retry_db
-        if retry_db.bind is None:
-            retry_db.bind = engine
-        return retry_db.query(User).filter(User.id == user_id).first()
+        try:
+            retry_db = SessionLocal()
+            request.state.db = retry_db
+            if retry_db.bind is None:
+                retry_db.bind = engine
+            return retry_db.query(User).filter(User.id == user_id).first()
+        except OperationalError:
+            session = getattr(request, "session", None)
+            if session:
+                session.clear()
+            try:
+                retry_db.close()
+            except Exception:
+                pass
+            return None
 
 
 def require_auth(redirect_to: str = "/login"):

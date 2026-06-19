@@ -6,6 +6,7 @@ attaching the session to request.state.db and ensuring proper cleanup.
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from sqlalchemy.exc import SQLAlchemyError
 from app.infrastructure.database.connection import SessionLocal, engine
 
 class DBSessionMiddleware(BaseHTTPMiddleware):
@@ -28,6 +29,9 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
         finally:
             # Close session after request is handled
             if hasattr(request.state, "db"):
-                request.state.db.close()
+                try:
+                    request.state.db.close()
+                except SQLAlchemyError as exc:
+                    print(f"[DB] ignored session close error: {exc}")
                 
         return response
