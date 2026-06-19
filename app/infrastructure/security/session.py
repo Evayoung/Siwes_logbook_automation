@@ -19,8 +19,10 @@ from datetime import datetime, timedelta
 from functools import wraps
 import inspect
 from app.infrastructure.database.connection import engine
+from app.infrastructure.database.connection import SessionLocal
 
 from fasthtml.common import Request, RedirectResponse
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.domain.models.user import User, UserRole
@@ -117,9 +119,22 @@ def get_current_user(request: Request, db: Session) -> Optional[User]:
     if db.bind is None:
         db.bind = engine
     
-    # Query user from database
-    user = db.query(User).filter(User.id == user_id).first()
-    return user
+    # Query user from database. Supabase pooler connections can be closed
+    # between requests; retry once on a fresh session instead of surfacing 500s.
+    try:
+        return db.query(User).filter(User.id == user_id).first()
+    except OperationalError:
+        try:
+            db.rollback()
+            db.close()
+        except Exception:
+            pass
+
+        retry_db = SessionLocal()
+        request.state.db = retry_db
+        if retry_db.bind is None:
+            retry_db.bind = engine
+        return retry_db.query(User).filter(User.id == user_id).first()
 
 
 def require_auth(redirect_to: str = "/login"):

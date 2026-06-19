@@ -49,6 +49,14 @@ else:
     # PostgreSQL configuration for production
     engine_kwargs = {
         "pool_pre_ping": True,
+        "pool_recycle": 60,
+        "pool_reset_on_return": None,
+        "connect_args": {
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+        },
         "echo": settings.debug,
     }
     if settings.db_disable_pooling:

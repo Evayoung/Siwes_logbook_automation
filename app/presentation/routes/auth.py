@@ -5,11 +5,13 @@ including login, logout, and session management.
 """
 
 from fasthtml.common import *
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from app.presentation.components.domain.auth import LoginPage
 from app.presentation.components.domain.landing import LandingPage
 from app.application.services.auth import AuthService
 from app.domain.models.user import UserRole
+from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.security.session import get_current_user
 
 
@@ -100,7 +102,18 @@ def setup_auth_routes(app: FastHTML):
         
         try:
             auth_service = AuthService(db)
-            result = auth_service.login(email, password)
+            try:
+                result = auth_service.login(email, password)
+            except OperationalError:
+                try:
+                    db.rollback()
+                    db.close()
+                except Exception:
+                    pass
+                retry_db = SessionLocal()
+                request.state.db = retry_db
+                auth_service = AuthService(retry_db)
+                result = auth_service.login(email, password)
             
             # Set session data
             request.session["user_id"] = result["user"].id
@@ -116,6 +129,8 @@ def setup_auth_routes(app: FastHTML):
         except ValueError as e:
             # Login failed - show error
             return LoginPage(error=str(e))
+        except OperationalError:
+            return LoginPage(error="Database connection was interrupted. Please try again.")
     
     
     @app.get("/logout")
