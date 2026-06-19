@@ -15,6 +15,7 @@ from faststrap import add_bootstrap, mount_assets
 from faststrap.pwa import add_pwa
 from app.config import get_settings
 from app.infrastructure.database import init_db
+from app.infrastructure.usability_data_patch import apply_usability_data_patch
 from app.presentation.routes.auth import setup_auth_routes
 from app.presentation.components.shared import SIWES_THEME, setup_siwes_defaults
 
@@ -71,6 +72,13 @@ mount_assets(app, "app/presentation/assets", url_path="/assets")
 # Production deployments should run scripts/migrate_to_supabase.py instead.
 if settings.environment != "production" or settings.auto_init_db:
     init_db()
+
+# Keep deployed usability-test accounts aligned with the approved client data.
+# This is idempotent and does not reset logs, chats, calls, or notifications.
+try:
+    apply_usability_data_patch()
+except Exception as exc:
+    print(f"[DATA PATCH] skipped usability data patch: {exc}")
 
 # Setup routes
 setup_auth_routes(app)
