@@ -23,6 +23,10 @@ dependencies = [
 [tool.fastapi]
 entrypoint = "main:app"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["data*", "docs*", "scripts*", "__pycache__*"]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
