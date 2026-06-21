@@ -604,6 +604,16 @@ def _build_log_review_data(db: Session, log: DailyLog, student_profile: StudentP
     elif log.status == LogStatus.FLAGGED:
         review_status = "flagged"
 
+    spoof_warning = False
+    placement_id = log.placement_id or (student_profile.placement_id if student_profile else None)
+    if log.latitude is not None and log.longitude is not None and placement_id:
+        placement = db.query(IndustrialPlacement).filter(IndustrialPlacement.id == placement_id).first()
+        if placement and placement.geofence:
+            lat_match = round(log.latitude, 6) == round(placement.geofence.latitude, 6)
+            lon_match = round(log.longitude, 6) == round(placement.geofence.longitude, 6)
+            if lat_match and lon_match:
+                spoof_warning = True
+
     return {
         "student": {
             "name": student.full_name if student else "Unknown Student",
@@ -626,6 +636,7 @@ def _build_log_review_data(db: Session, log: DailyLog, student_profile: StudentP
             "coords": coords,
             "distance": distance,
             "radius_text": "Based on configured placement geofence",
+            "spoof_warning": spoof_warning,
         },
     }
 
@@ -664,10 +675,25 @@ def _get_supervisor_logs_data(
     users = db.query(User).filter(User.id.in_(user_ids)).all()
     user_by_id = {u.id: u for u in users}
 
+    placement_ids = {p.placement_id for p in assigned_profiles if p.placement_id}
+    placements = db.query(IndustrialPlacement).filter(IndustrialPlacement.id.in_(placement_ids)).all() if placement_ids else []
+    geofence_by_placement_id = {p.id: p.geofence for p in placements if p.geofence}
+
     logs_data = []
     for log in logs:
         student = user_by_id.get(log.student_id)
         profile = profile_by_student.get(log.student_id)
+
+        geofence = geofence_by_placement_id.get(log.placement_id) if log.placement_id else (
+            geofence_by_placement_id.get(profile.placement_id) if profile and profile.placement_id else None
+        )
+        spoof_warning = False
+        if geofence and log.latitude is not None and log.longitude is not None:
+            lat_match = round(log.latitude, 6) == round(geofence.latitude, 6)
+            lon_match = round(log.longitude, 6) == round(geofence.longitude, 6)
+            if lat_match and lon_match:
+                spoof_warning = True
+
         logs_data.append(
             {
                 "id": log.id,
@@ -678,6 +704,7 @@ def _get_supervisor_logs_data(
                 "description": log.activity_description,
                 "status": _status_label(log.status),
                 "geofence_status": log.location_status.value if log.location_status else "unknown",
+                "spoof_warning": spoof_warning,
             }
         )
 

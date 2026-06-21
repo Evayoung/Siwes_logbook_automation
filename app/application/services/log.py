@@ -120,9 +120,10 @@ class LogService:
         if not placement:
             raise ValueError("Placement not found")
         
-        # Validate coordinates
-        if not self.geofence_service.validate_coordinates(latitude, longitude):
-            raise ValueError("Invalid GPS coordinates")
+        # Validate coordinates only if they are provided
+        if latitude is not None and longitude is not None:
+            if not self.geofence_service.validate_coordinates(latitude, longitude):
+                raise ValueError("Invalid GPS coordinates")
         
         # Calculate week number
         week_number = self._calculate_week_number(log_date, student_id)

@@ -69,9 +69,9 @@ class Settings(BaseSettings):
         description="How many days offline cached login resume is allowed after last successful online auth"
     )
     offline_sync_grace_days: int = Field(
-        default=3,
+        default=14,
         ge=1,
-        le=14,
+        le=180,
         description="How many days an offline-created log may wait before syncing"
     )
     

@@ -105,19 +105,21 @@ class SyncService:
                 queued_at = self._parse_client_datetime(
                     log_data.get("queued_at") or log_data.get("created_offline_at")
                 )
+                is_late_sync = False
                 if queued_at:
                     if queued_at.date() != log_date:
                         raise ValueError("Offline log date does not match the queued date")
                     max_age = timedelta(days=settings.offline_sync_grace_days)
                     if datetime.utcnow() - queued_at > max_age:
-                        raise ValueError(
-                            f"Offline log sync window has expired ({settings.offline_sync_grace_days} days)"
-                        )
+                        is_late_sync = True
                 
                 # Create log
                 activity_description = log_data.get("activity_description") or log_data.get("activities")
                 if not activity_description:
                     raise ValueError("Missing activity_description")
+
+                if is_late_sync:
+                    activity_description = f"{activity_description} [Late Sync]"
 
                 self.log_service.create_log(
                     student_id=student_id,

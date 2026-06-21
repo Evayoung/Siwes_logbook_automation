@@ -543,20 +543,219 @@ def setup_student_routes(app: FastHTML):
             err = "Location Services is disabled in Profile settings. Enable it to submit logs."
             return Div(
                 Alert(err, variant="warning"),
-                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
-                cls="modal-body",
-                id="modal-body-content"
+            "location_service": bool(getattr(profile, "setting_location_service", True)) if profile else True,
+            "offline_mode": bool(getattr(profile, "setting_offline_mode", False)) if profile else False,
+            "notifications": bool(getattr(profile, "setting_notifications", True)) if profile else True,
+        }
+            
+        content = StudentProfilePage(user=user_data, placement=placement_data, settings=settings_data)
+        
+        return DashboardLayout(
+            content,
+            sidebar=StudentSidebarNav(active_page="profile"),
+            bottom_nav=StudentBottomNav(active_page="profile"),
+            current_user=current_user,
+        )
+
+    @app.post("/student/profile/settings")
+    @require_auth()
+    @require_role(UserRole.STUDENT)
+    async def save_student_settings(request: Request, db: Session = None, current_user: Optional[User] = None):
+        """Persist student profile preference toggles."""
+        form = await request.form()
+        location_service = bool(form.get("location_service"))
+        offline_mode = bool(form.get("offline_mode"))
+        notifications = bool(form.get("notifications"))
+
+        profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        if not profile:
+            return SettingsCard(
+                settings={
+                    "location_service": location_service,
+                    "offline_mode": offline_mode,
+                    "notifications": notifications,
+                },
+                notice="Profile not found. Settings were not saved.",
+                notice_variant="danger",
             )
 
-        # Validate GPS coordinates are present
-        if not latitude or not longitude:
-            err = "GPS location is required. Please enable location services."
+        profile.setting_location_service = location_service
+        profile.setting_offline_mode = offline_mode
+        profile.setting_notifications = notifications
+        db.commit()
+
+        return SettingsCard(
+            settings={
+                "location_service": location_service,
+                "offline_mode": offline_mode,
+                "notifications": notifications,
+            },
+            notice="Settings saved successfully.",
+            notice_variant="success",
+        )
+
+    @app.get("/student/logbook")
+    @require_auth()
+    @require_role(UserRole.STUDENT)
+    def student_logbook(request: Request, db: Session = None, current_user: Optional[User] = None):
+        """Student logbook page with week cards.
+        
+        Args:
+            request: FastHTML request object
+            db: Database session
+        
+        Returns:
+            Logbook page HTML
+        """
+        weeks_data = _get_weeks_data(db, current_user.id, "all")
+        current_week = _calculate_current_week(db, current_user.id)
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        offline_mode_enabled = bool(getattr(student_profile, "setting_offline_mode", False)) if student_profile else False
+        
+        content = LogbookPage(
+            weeks_data=weeks_data,
+            current_week=current_week,
+            total_weeks=25,
+            offline_mode_enabled=offline_mode_enabled,
+        )
+        
+        return DashboardLayout(
+            content,
+            sidebar=StudentSidebarNav(active_page="logbook"),
+            bottom_nav=StudentBottomNav(active_page="logbook"),
+            current_user=current_user,
+        )
+    
+    @app.get("/student/logbook/day/{day_date}")
+    @require_auth()
+    @require_role(UserRole.STUDENT)
+    def get_log_modal(request: Request, day_date: str, db: Session = None, current_user: Optional[User] = None):
+        """Get modal body content for a specific day.
+        
+        Args:
+            request: FastHTML request object
+            day_date: Date string
+            db: Database session
+        
+        Returns:
+            Modal body HTML (content only)
+        """
+        if day_date == "today":
+            day_date = date.today().isoformat()
+
+        existing_log = None
+        try:
+            target_date = date.fromisoformat(day_date)
+            today = date.today()
+            student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+            location_enabled = bool(getattr(student_profile, "setting_location_service", True)) if student_profile else True
+
+            if target_date > today:
+                return LogAccessBlockedModalBody("Sorry future entry not allowed")
+
+            day_log = db.query(DailyLog).filter(
+                DailyLog.student_id == current_user.id,
+                DailyLog.log_date == target_date,
+            ).first()
+
+            if target_date < today and not day_log:
+                return LogAccessBlockedModalBody("Log window passed, please contact your supervisor")
+
+            if day_log:
+                existing_log = {
+                    "status": _status_key(day_log.status) if day_log.status else "",
+                    "description": day_log.activity_description,
+                    "latitude": day_log.latitude,
+                    "longitude": day_log.longitude,
+                }
+
+                if target_date < today:
+                    existing_log["readonly"] = True
+                    existing_log["lock_message"] = "Log window passed, please contact your supervisor"
+            elif target_date == today and not location_enabled:
+                return LogAccessBlockedModalBody("Location Services is disabled in Profile settings. Enable it to create today's log.")
+        except ValueError:
+            existing_log = None
+        
+        return LogEntryModalBody(date=day_date, existing_log=existing_log)
+    
+    @app.post("/student/logbook/create")
+    @require_auth()
+    @require_role(UserRole.STUDENT)
+    async def create_log_entry(request: Request, db: Session = None, current_user: Optional[User] = None):
+        """Create a new log entry.
+        
+        Args:
+            request: FastHTML request object
+            db: Database session
+        
+        Returns:
+            Success response or error
+        """
+        from faststrap import Alert
+        from faststrap.presets import hx_trigger
+        
+        form_data = await request.form()
+        
+        log_date = form_data.get("log_date")
+        activity_description = form_data.get("activity_description")
+        latitude = form_data.get("latitude")
+        longitude = form_data.get("longitude")
+
+        try:
+            parsed_log_date = date.fromisoformat(log_date)
+        except Exception:
+            err = "Invalid log date submitted."
             return Div(
                 Alert(err, variant="danger"),
                 Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
                 cls="modal-body",
                 id="modal-body-content"
             )
+        
+        # Validate date window
+        today = date.today()
+        if parsed_log_date > today:
+            err = "Sorry future entry not allowed"
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+        if parsed_log_date < today:
+            err = "Log window passed, please contact your supervisor"
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+
+        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        location_enabled = bool(getattr(student_profile, "setting_location_service", True)) if student_profile else True
+        if not location_enabled:
+            err = "Location Services is disabled in Profile settings. Enable it to submit logs."
+            return Div(
+                Alert(err, variant="warning"),
+                Script(f"document.body.dispatchEvent(new CustomEvent('log_save_result', {{ detail: {{ ok: false, message: {err!r} }} }}));"),
+                cls="modal-body",
+                id="modal-body-content"
+            )
+
+        # Parse GPS coordinates safely if present
+        lat_val = None
+        lng_val = None
+        if latitude and str(latitude).strip():
+            try:
+                lat_val = float(latitude)
+            except ValueError:
+                pass
+        if longitude and str(longitude).strip():
+            try:
+                lng_val = float(longitude)
+            except ValueError:
+                pass
         
         # Get active placement
         placement_repo = PlacementRepository(db)
@@ -587,9 +786,8 @@ def setup_student_routes(app: FastHTML):
 
             try:
                 existing_day_log.activity_description = activity_description
-                if latitude and longitude:
-                    existing_day_log.latitude = float(latitude)
-                    existing_day_log.longitude = float(longitude)
+                existing_day_log.latitude = lat_val
+                existing_day_log.longitude = lng_val
 
                 if _status_key(existing_day_log.status) == "flagged":
                     existing_day_log.status = LogStatus.PENDING_REVIEW
@@ -610,6 +808,9 @@ def setup_student_routes(app: FastHTML):
                         longitude=existing_day_log.longitude,
                         geofence=placement.geofence,
                     )
+                else:
+                    existing_day_log.distance_from_geofence = None
+                    existing_day_log.location_status = LocationStatus.UNKNOWN
 
                 db.commit()
 
@@ -648,8 +849,8 @@ def setup_student_routes(app: FastHTML):
                 "placement_id": placement.id,
                 "log_date": parsed_log_date.isoformat(),
                 "activity_description": activity_description,
-                "latitude": float(latitude),
-                "longitude": float(longitude),
+                "latitude": lat_val,
+                "longitude": lng_val,
                 "skills_learned": None,
                 "challenges": None
             }
@@ -697,9 +898,6 @@ def setup_student_routes(app: FastHTML):
                 id="modal-body-content"
             )
 
-    @app.post("/student/logbook/sync")
-    @require_auth()
-    @require_role(UserRole.STUDENT)
     async def sync_offline_entry(request: Request, db: Session = None, current_user: Optional[User] = None):
         """Sync a single offline log entry (JSON)."""
         student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()

@@ -113,9 +113,9 @@
         if (!latInput || !lngInput || !coords || !status || !alert || !submit) return;
 
         const setErr = (msg) => {
-            status.textContent = msg;
-            alert.className = 'alert alert-danger';
-            submit.disabled = true;
+            status.textContent = msg + ' (Log will be submitted without location verification)';
+            alert.className = 'alert alert-warning';
+            submit.disabled = false;
         };
         if (!navigator.geolocation) {
             setErr('GPS not supported on this device');
@@ -130,7 +130,7 @@
                 alert.className = 'alert alert-success';
                 submit.disabled = false;
             },
-            () => setErr('Location required - Please enable GPS'),
+            () => setErr('Location unavailable - Please check GPS permission'),
             { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
         );
     }
@@ -286,11 +286,20 @@
         const fd = new FormData(form);
         const logDate = String(fd.get('log_date') || '').trim();
         const activityDescription = String(fd.get('activity_description') || '').trim();
-        const latitude = Number(fd.get('latitude'));
-        const longitude = Number(fd.get('longitude'));
+        
+        const latRaw = fd.get('latitude');
+        const lngRaw = fd.get('longitude');
+        const latitude = (latRaw && latRaw.trim() !== '') ? Number(latRaw) : null;
+        const longitude = (lngRaw && lngRaw.trim() !== '') ? Number(lngRaw) : null;
 
-        if (!logDate || !activityDescription || Number.isNaN(latitude) || Number.isNaN(longitude)) {
+        if (!logDate || !activityDescription) {
             throw new Error('Missing required fields for offline queue.');
+        }
+        if (latitude !== null && Number.isNaN(latitude)) {
+            throw new Error('Invalid latitude coordinate.');
+        }
+        if (longitude !== null && Number.isNaN(longitude)) {
+            throw new Error('Invalid longitude coordinate.');
         }
 
         const payload = {

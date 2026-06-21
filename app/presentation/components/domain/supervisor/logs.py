@@ -57,8 +57,9 @@ def LogCard(log: dict, show_checkbox: bool = True) -> FT:
     style = status_styles.get(log["status"], status_styles["Pending"])
 
     geofence_ok = log.get("geofence_status") == "within"
-    geofence_color = "success" if geofence_ok else "danger"
-    geofence_text = "Within geofence" if geofence_ok else "Outside geofence"
+    geofence_color = "success" if geofence_ok else ("warning" if log.get("geofence_status") == "unknown" else "danger")
+    geofence_text = "Within geofence" if geofence_ok else ("Unknown location" if log.get("geofence_status") == "unknown" else "Outside geofence")
+    spoof_warning = log.get("spoof_warning", False)
 
     return Card(
         Div(
@@ -85,6 +86,11 @@ def LogCard(log: dict, show_checkbox: bool = True) -> FT:
                         cls="text-muted small mb-2",
                     ),
                     P(log["description"], cls="mb-2 text-dark"),
+                    Div(
+                        Icon("exclamation-triangle-fill", cls="me-1 text-warning"),
+                        "Possible GPS Spoofing Detected",
+                        cls="small text-warning mb-1 d-flex align-items-center fw-medium",
+                    ) if spoof_warning else "",
                     Div(
                         Icon("geo-alt-fill", cls=f"me-1 text-{geofence_color}"),
                         geofence_text,
@@ -189,7 +195,7 @@ def LogReviewPage(
 ) -> FT:
     """Detailed log review page."""
     location_status = log_data["location"]["status"]
-    status_variant = "success" if location_status.lower().startswith("within") else "danger"
+    status_variant = "success" if location_status.lower().startswith("within") else ("warning" if "unknown" in location_status.lower() else "danger")
 
     return Div(
         Button(
@@ -274,6 +280,11 @@ def LogReviewPage(
                 "Location Information",
                 cls="d-flex align-items-center mb-3",
             ),
+            Div(
+                Icon("exclamation-triangle-fill", cls="me-2"),
+                "Warning: Possible GPS spoofing detected (coordinates exactly match geofence center).",
+                cls="alert alert-warning mb-3 py-2 px-3 small d-flex align-items-center fw-medium",
+            ) if log_data["location"].get("spoof_warning") else "",
             Div(
                 Div(
                     P("Location Status", cls="text-muted small mb-2"),

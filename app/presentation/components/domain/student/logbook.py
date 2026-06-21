@@ -163,6 +163,61 @@ def WeekCard(
                 )
                 for day in days_data
             ],
+    
+    return A(
+        Div(
+            Div(day_name, cls="fw-bold"),
+            cls=f"{cell_class} black-color justify-content-center align-items-center w-100",
+        ),
+        data_bs_toggle="modal",
+        data_bs_target="#logModal",
+        hx_get=f"/student/logbook/day/{iso_date}",
+        hx_target="#modal-body-content",
+        hx_swap="innerHTML",
+        cls="text-decoration-none"
+    )
+
+
+def WeekCard(
+    week_number: int,
+    start_date: datetime,
+    days_data: List[Dict],
+    week_phase: str = "past",
+    show_completed_badge: bool = False,
+) -> FT:
+    """Week card showing 5 daily cells."""
+    end_date = start_date + timedelta(days=4)
+    date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+    
+    phase = week_phase if week_phase in {"past", "current", "future"} else "past"
+    
+    return Card(
+        # Header
+        Div(
+            Div(
+                H5(f"Week {week_number}", cls="mb-0"),
+                P(date_range, cls="text-muted small mb-0"),
+                cls="week-card-header-left"
+            ),
+            Div(
+                Badge("Completed Week", variant="secondary", cls="me-1") if show_completed_badge else "",
+                Badge("Current Week", variant="primary", cls="me-1") if phase == "current" else "",
+                cls="week-card-header-right"
+            ),
+            cls="week-card-header"
+        ),
+        
+        # Daily grid
+        Div(
+            *[
+                DayCellNormal(
+                    day["name"],
+                    day["display_date"],
+                    day["iso_date"],
+                    day.get("status")
+                )
+                for day in days_data
+            ],
             cls="daily-grid m-1"
         ),
         
@@ -183,13 +238,15 @@ if (navigator.geolocation) {
             document.getElementById('submit-btn').disabled = false;
         },
         (error) => {
-            document.getElementById('gps-status').textContent = 'Location required - Please enable GPS';
-            document.getElementById('gps-alert').className = 'alert alert-danger';
+            document.getElementById('gps-status').textContent = 'Location unavailable - Log will be submitted without location verification';
+            document.getElementById('gps-alert').className = 'alert alert-warning';
+            document.getElementById('submit-btn').disabled = false;
         }
     );
 } else {
-    document.getElementById('gps-status').textContent = 'GPS not supported';
-    document.getElementById('gps-alert').className = 'alert alert-danger';
+    document.getElementById('gps-status').textContent = 'GPS not supported - Log will be submitted without location verification';
+    document.getElementById('gps-alert').className = 'alert alert-warning';
+    document.getElementById('submit-btn').disabled = false;
 }
 
 // Character counter
@@ -203,8 +260,6 @@ if (textarea && charCount) {
 """
 
 def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
-    """Modal body content.
-    Args:
         date: ISO date string (YYYY-MM-DD)
     """
     is_existing = bool(existing_log)

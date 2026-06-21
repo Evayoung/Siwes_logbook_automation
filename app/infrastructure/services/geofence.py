@@ -98,9 +98,9 @@ class GeofenceService:
     
     def is_within_geofence(
         self,
-        latitude: float,
-        longitude: float,
-        geofence: Geofence
+        latitude: float | None,
+        longitude: float | None,
+        geofence: Geofence | None
     ) -> bool:
         """Check if a GPS coordinate is within a geofence boundary.
         
@@ -129,22 +129,24 @@ class GeofenceService:
             - Returns False if geofence is None
             - Uses Haversine formula for accurate distance calculation
         """
-        if not geofence:
+        if not geofence or latitude is None or longitude is None:
             return False
         
-        distance = self.calculate_distance(
-            lat1=latitude,
-            lon1=longitude,
-            lat2=geofence.latitude,
-            lon2=geofence.longitude
-        )
-        
-        return distance <= geofence.radius_meters
+        try:
+            distance = self.calculate_distance(
+                lat1=float(latitude),
+                lon1=float(longitude),
+                lat2=geofence.latitude,
+                lon2=geofence.longitude
+            )
+            return distance <= geofence.radius_meters
+        except (ValueError, TypeError):
+            return False
     
     def get_location_status(
         self,
-        latitude: float,
-        longitude: float,
+        latitude: float | None,
+        longitude: float | None,
         geofence: Geofence | None
     ) -> LocationStatus:
         """Determine the location status for a GPS coordinate.
@@ -170,6 +172,10 @@ class GeofenceService:
             - Returns UNKNOWN if geofence is None
             - Returns UNKNOWN if coordinates are invalid (0, 0)
         """
+        # Check for missing coordinates
+        if latitude is None or longitude is None:
+            return LocationStatus.UNKNOWN
+            
         # Check for invalid coordinates
         if latitude == 0 and longitude == 0:
             return LocationStatus.UNKNOWN
@@ -186,9 +192,9 @@ class GeofenceService:
     
     def calculate_distance_from_geofence(
         self,
-        latitude: float,
-        longitude: float,
-        geofence: Geofence
+        latitude: float | None,
+        longitude: float | None,
+        geofence: Geofence | None
     ) -> Tuple[float, bool]:
         """Calculate distance from a point to the geofence center.
         
@@ -213,19 +219,23 @@ class GeofenceService:
             - Useful for showing users how far they are from the geofence
             - Can be used to provide feedback in the UI
         """
-        distance = self.calculate_distance(
-            lat1=latitude,
-            lon1=longitude,
-            lat2=geofence.latitude,
-            lon2=geofence.longitude
-        )
-        
-        is_within = distance <= geofence.radius_meters
-        
-        return distance, is_within
+        if latitude is None or longitude is None or not geofence:
+            return 0.0, False
+            
+        try:
+            distance = self.calculate_distance(
+                lat1=float(latitude),
+                lon1=float(longitude),
+                lat2=geofence.latitude,
+                lon2=geofence.longitude
+            )
+            is_within = distance <= geofence.radius_meters
+            return distance, is_within
+        except (ValueError, TypeError):
+            return 0.0, False
     
     @staticmethod
-    def validate_coordinates(latitude: float, longitude: float) -> bool:
+    def validate_coordinates(latitude: float | None, longitude: float | None) -> bool:
         """Validate GPS coordinates.
         
         Args:
@@ -245,8 +255,16 @@ class GeofenceService:
             - Latitude must be between -90 and 90
             - Longitude must be between -180 and 180
         """
-        if not (-90 <= latitude <= 90):
+        if latitude is None or longitude is None:
             return False
-        if not (-180 <= longitude <= 180):
+            
+        try:
+            lat_f = float(latitude)
+            lon_f = float(longitude)
+            if not (-90 <= lat_f <= 90):
+                return False
+            if not (-180 <= lon_f <= 180):
+                return False
+            return True
+        except (ValueError, TypeError):
             return False
-        return True
