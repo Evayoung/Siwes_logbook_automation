@@ -110,6 +110,9 @@ class LogService:
             if existing_log:
                 return existing_log
 
+        if log_date.weekday() >= 5:
+            raise ValueError("Logging is only allowed from Monday to Friday")
+
         existing_day_log = self.log_repo.get_log_by_date(student_id, log_date)
         if existing_day_log:
             return existing_day_log
