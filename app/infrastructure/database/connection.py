@@ -46,12 +46,14 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 else:
-    # PostgreSQL configuration for production
+    # PostgreSQL configuration for production (Supabase)
     engine_kwargs = {
         "pool_pre_ping": True,
         "pool_recycle": 60,
         "pool_reset_on_return": None,
         "connect_args": {
+            # Fail fast on dead connections instead of hanging the request
+            "connect_timeout": 10,
             "keepalives": 1,
             "keepalives_idle": 30,
             "keepalives_interval": 10,

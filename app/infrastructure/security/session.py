@@ -1,8 +1,4 @@
-"""Session management and authentication utilities.
-
-This module provides session management for FastHTML applications, including
-user authentication, role-based access control, and session lifecycle management.
-"""
+"""Session management and authentication utilities."""
 
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timedelta
@@ -34,14 +30,44 @@ def create_session(user: User) -> Dict[str, Any]:
     }
 
 
+def _user_from_session_data(session: dict) -> Optional[User]:
+    """Build a lightweight User object from signed session data.
+
+    Used as a fallback when the database is temporarily unreachable.
+    The session cookie is cryptographically signed by Starlette, so
+    the data is trustworthy without a DB round-trip.
+    """
+    try:
+        user_id = session.get('user_id')
+        email = session.get('email', '')
+        role_val = session.get('role', '')
+        full_name = session.get('full_name', '')
+        if not user_id or not role_val:
+            return None
+        role = UserRole(role_val)
+        user = User.__new__(User)
+        user.id = user_id
+        user.email = email
+        user.full_name = full_name
+        user.role = role
+        user.is_active = True
+        user.password_hash = ''
+        return user
+    except Exception:
+        return None
+
+
 def get_current_user(request: Request, db: Session) -> Optional[User]:
-    """Get the currently authenticated user from the request."""
-    # Get session from request
+    """Get the currently authenticated user from the request.
+
+    Falls back to building a User from the signed session cookie when
+    the database is temporarily unreachable so a transient Supabase
+    connection drop never logs the user out.
+    """
     session = getattr(request, 'session', None)
     if not session:
         return None
 
-    # Extract user_id from session
     user_id = session.get('user_id')
     if not user_id:
         return None
@@ -60,8 +86,7 @@ def get_current_user(request: Request, db: Session) -> Optional[User]:
     if db.bind is None:
         db.bind = engine
 
-    # Query user from database. Supabase pooler connections can be closed
-    # between requests; retry once on a fresh session instead of surfacing 500s.
+    # Try DB lookup — retry once on transient connection errors
     try:
         return db.query(User).filter(User.id == user_id).first()
     except OperationalError:
@@ -78,24 +103,25 @@ def get_current_user(request: Request, db: Session) -> Optional[User]:
                 retry_db.bind = engine
             return retry_db.query(User).filter(User.id == user_id).first()
         except OperationalError:
-            # Do NOT clear the session here — that would log the user out.
-            # A transient DB error does not mean the session is invalid.
-            # Return None so this single request fails gracefully; the user
-            # can simply retry and will still be logged in.
             try:
                 retry_db.close()
             except Exception:
                 pass
-            return None
+
+    # DB is unavailable — fall back to the signed session cookie.
+    # The cookie is cryptographically signed so we can trust its content
+    # for auth without a DB query. This prevents Supabase SSL drops from
+    # logging users out.
+    return _user_from_session_data(session)
 
 
 def require_auth(redirect_to: str = "/login"):
     """Decorator to require authentication for a route.
 
-    If the request comes from HTMX (HX-Request header), returns an
-    HX-Redirect response instead of HTTP 303 so the browser performs a
-    full-page navigation to /login rather than injecting the login page
-    HTML inside the HTMX target element (which looks like a logout).
+    For HTMX requests, returns HX-Redirect (status 200) instead of a
+    303 redirect so the browser does a full-page navigation to /login
+    rather than injecting the login page HTML into the HTMX target
+    element (which makes it look like a logout).
     """
     def decorator(func: Callable):
         def _inject_user(args, kwargs):
@@ -111,9 +137,6 @@ def require_auth(redirect_to: str = "/login"):
 
             user = get_current_user(request, db)
             if not user:
-                # For HTMX requests use HX-Redirect so the browser does a
-                # proper full-page navigation instead of swapping /login HTML
-                # into the HTMX target (which makes it look like a logout).
                 is_htmx = request.headers.get("HX-Request") == "true"
                 if is_htmx:
                     resp = StarletteResponse(
