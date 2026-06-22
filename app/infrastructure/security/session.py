@@ -8,7 +8,8 @@ import inspect
 from app.infrastructure.database.connection import engine, SessionLocal
 from fasthtml.common import Request, RedirectResponse
 from starlette.responses import Response as StarletteResponse
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.pool.impl import exc as pool_exc
 from sqlalchemy.orm import Session
 
 from app.domain.models.user import User, UserRole
@@ -89,7 +90,7 @@ def get_current_user(request: Request, db: Session) -> Optional[User]:
     # Try DB lookup — retry once on transient connection errors
     try:
         return db.query(User).filter(User.id == user_id).first()
-    except OperationalError:
+    except (OperationalError, pool_exc.TimeoutError, ProgrammingError):
         try:
             db.rollback()
             db.close()
@@ -102,7 +103,7 @@ def get_current_user(request: Request, db: Session) -> Optional[User]:
             if retry_db.bind is None:
                 retry_db.bind = engine
             return retry_db.query(User).filter(User.id == user_id).first()
-        except OperationalError:
+        except (OperationalError, pool_exc.TimeoutError, ProgrammingError):
             try:
                 retry_db.close()
             except Exception:

@@ -6,13 +6,14 @@ and provides utilities for database connection management.
 
 import time
 from contextlib import contextmanager
-from typing import Generator, TypeVar, Callable, Any
+from typing import Generator, TypeVar, Callable
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool, StaticPool
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.pool.impl import exc as pool_exc
 
 from app.config import get_settings
 from app.domain.models.base import Base
@@ -27,7 +28,7 @@ def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
     """Execute a database operation with retry on transient SSL errors.
     
     Args:
-        fn: Function to execute that may raise OperationalError
+        fn: Function to execute that may raise OperationalError or TimeoutError
         max_retries: Maximum number of retry attempts (default 2)
         
     Returns:
@@ -35,18 +36,20 @@ def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
         
     Raises:
         OperationalError: If all retries fail
+        TimeoutError: If connection pool timeout after all retries
+        ProgrammingError: If PostgreSQL rejects autocommit during ping
     """
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             return fn()
-        except OperationalError as e:
+        except (OperationalError, pool_exc.TimeoutError, ProgrammingError) as e:
             last_error = e
             if attempt < max_retries:
                 time.sleep(0.1 * (attempt + 1))
                 continue
             raise
-    raise last_error
+    raise last_error  # type: ignore[misc]
 
 
 # Get database URL from settings
@@ -78,7 +81,6 @@ if DATABASE_URL.startswith("sqlite"):
 else:
     # PostgreSQL configuration for production (Supabase)
     engine_kwargs = {
-        "pool_pre_ping": True,
         "pool_recycle": 1800,
         "pool_reset_on_return": None,
         "connect_args": {

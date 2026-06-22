@@ -6,7 +6,8 @@ attaching the session to request.state.db and ensuring proper cleanup.
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from sqlalchemy.exc import SQLAlchemyError, OperationalError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, ProgrammingError
+from sqlalchemy.pool.impl import exc as pool_exc
 from app.infrastructure.database.connection import SessionLocal, engine
 
 class DBSessionMiddleware(BaseHTTPMiddleware):
@@ -27,7 +28,7 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
             # Process request
             response = await call_next(request)
             
-        except OperationalError as exc:
+        except (OperationalError, pool_exc.TimeoutError, ProgrammingError):
             # Handle stale connections by invalidating and retrying
             if db is not None:
                 db.invalidate()
