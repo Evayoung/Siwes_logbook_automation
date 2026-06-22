@@ -107,8 +107,9 @@ def DayCell(day_name: str, display_date: str, iso_date: str, status: str | None 
 def DayCellNormal(day_name: str, display_date: str, iso_date: str, status: str | None = None) -> FT:
     """Individual day cell in week card (simplified)."""
     cell_class = f"day-cell day-cell-{status}" if status else "day-cell day-cell-pending"
-    if status == "pending_review": cell_class = "day-cell day-cell-pending"
-    
+    if status == "pending_review":
+        cell_class = "day-cell day-cell-pending"
+
     return A(
         Div(
             Div(day_name, cls="fw-bold"),
@@ -130,12 +131,12 @@ def WeekCard(
     week_phase: str = "past",
     show_completed_badge: bool = False,
 ) -> FT:
-    """Week card showing 5 daily cells."""
+    """Week card showing 5 daily cells (Mon–Fri only)."""
     end_date = start_date + timedelta(days=4)
     date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-    
+
     phase = week_phase if week_phase in {"past", "current", "future"} else "past"
-    
+
     return Card(
         # Header
         Div(
@@ -151,63 +152,7 @@ def WeekCard(
             ),
             cls="week-card-header"
         ),
-        
-        # Daily grid
-        Div(
-            *[
-                DayCellNormal(
-                    day["name"],
-                    day["display_date"],
-                    day["iso_date"],
-                    day.get("status")
-                )
-                for day in days_data
-            ],
-    
-    return A(
-        Div(
-            Div(day_name, cls="fw-bold"),
-            cls=f"{cell_class} black-color justify-content-center align-items-center w-100",
-        ),
-        data_bs_toggle="modal",
-        data_bs_target="#logModal",
-        hx_get=f"/student/logbook/day/{iso_date}",
-        hx_target="#modal-body-content",
-        hx_swap="innerHTML",
-        cls="text-decoration-none"
-    )
-
-
-def WeekCard(
-    week_number: int,
-    start_date: datetime,
-    days_data: List[Dict],
-    week_phase: str = "past",
-    show_completed_badge: bool = False,
-) -> FT:
-    """Week card showing 5 daily cells."""
-    end_date = start_date + timedelta(days=4)
-    date_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-    
-    phase = week_phase if week_phase in {"past", "current", "future"} else "past"
-    
-    return Card(
-        # Header
-        Div(
-            Div(
-                H5(f"Week {week_number}", cls="mb-0"),
-                P(date_range, cls="text-muted small mb-0"),
-                cls="week-card-header-left"
-            ),
-            Div(
-                Badge("Completed Week", variant="secondary", cls="me-1") if show_completed_badge else "",
-                Badge("Current Week", variant="primary", cls="me-1") if phase == "current" else "",
-                cls="week-card-header-right"
-            ),
-            cls="week-card-header"
-        ),
-        
-        # Daily grid
+        # Daily grid (Mon–Fri only)
         Div(
             *[
                 DayCellNormal(
@@ -220,7 +165,6 @@ def WeekCard(
             ],
             cls="daily-grid m-1"
         ),
-        
         cls=f"week-card week-card-{phase} white-color"
     )
 
@@ -260,7 +204,11 @@ if (textarea && charCount) {
 """
 
 def LogEntryModalBody(date: str, existing_log: Dict | None = None) -> FT:
+    """Build log entry modal body form.
+
+    Args:
         date: ISO date string (YYYY-MM-DD)
+        existing_log: Existing log data for edit/view mode, or None for new entry.
     """
     is_existing = bool(existing_log)
     is_readonly = bool(existing_log and (existing_log.get("status") == "verified" or existing_log.get("readonly")))

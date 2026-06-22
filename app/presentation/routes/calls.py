@@ -232,10 +232,16 @@ def _render_livekit_call_page(
                 let micEnabled = true;
                 let camEnabled = callMode === 'video';
 
-                const room = new Room({{
+                const room = new Room({
                     adaptiveStream: true,
                     dynacast: true,
-                }});
+                    audioCaptureDefaults: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                    },
+                    audioOutput: { deviceId: 'default' },
+                });
 
                 function setStatus(message) {{
                     if (statusEl) statusEl.textContent = message;
@@ -298,13 +304,19 @@ def _render_livekit_call_page(
                     el.autoplay = true;
                     el.playsInline = true;
                     if (track.kind === 'audio') {{
-                        el.controls = false;
                         el.muted = false;
+                        el.volume = 1.0;
+                        el.controls = false;
                     }}
                     remoteMedia.appendChild(el);
-                    if (track.kind === 'audio' && el.play) {{
+                    if (track.kind === 'audio') {{
+                        // Attempt immediate play, then retry after 500ms for autoplay restrictions
                         el.play().then(hideAudioUnlock).catch(() => {{
-                            showAudioUnlock('Tap Enable Audio to hear the other participant.');
+                            setTimeout(() => {{
+                                el.play().then(hideAudioUnlock).catch(() => {{
+                                    showAudioUnlock('Tap \'Enable Audio\' to hear the other participant.');
+                                }});
+                            }}, 500);
                         }});
                     }}
                 }}
