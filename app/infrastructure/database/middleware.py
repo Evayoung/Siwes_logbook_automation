@@ -6,31 +6,37 @@ attaching the session to request.state.db and ensuring proper cleanup.
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from app.infrastructure.database.connection import SessionLocal, engine
 
 class DBSessionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = None
+        db = None
         try:
             # Create session and attach to request state
-            session = SessionLocal()
+            db = SessionLocal()
             
             # Ensure session is bound (fix for UnboundExecutionError)
-            if session.bind is None:
+            if db.bind is None:
                 print("DEBUG: Session was unbound. Force-binding to engine.")
-                session.bind = engine
+                db.bind = engine
                 
-            request.state.db = session
+            request.state.db = db
             
             # Process request
             response = await call_next(request)
             
+        except OperationalError as exc:
+            # Handle stale connections by invalidating and retrying
+            if db is not None:
+                db.invalidate()
+            raise
         finally:
             # Close session after request is handled
-            if hasattr(request.state, "db"):
+            if db is not None:
                 try:
-                    request.state.db.close()
+                    db.close()
                 except SQLAlchemyError as exc:
                     print(f"[DB] ignored session close error: {exc}")
                 

@@ -4,19 +4,49 @@ This module handles SQLAlchemy engine creation, session factory setup,
 and provides utilities for database connection management.
 """
 
+import time
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, TypeVar, Callable, Any
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool, StaticPool
+from sqlalchemy.exc import OperationalError
 
 from app.config import get_settings
 from app.domain.models.base import Base
 
 # Import all models to ensure they're registered with Base.metadata
 from app.domain.models import *
+
+T = TypeVar('T')
+
+
+def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
+    """Execute a database operation with retry on transient SSL errors.
+    
+    Args:
+        fn: Function to execute that may raise OperationalError
+        max_retries: Maximum number of retry attempts (default 2)
+        
+    Returns:
+        Result of the function call
+        
+    Raises:
+        OperationalError: If all retries fail
+    """
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except OperationalError as e:
+            last_error = e
+            if attempt < max_retries:
+                time.sleep(0.1 * (attempt + 1))
+                continue
+            raise
+    raise last_error
 
 
 # Get database URL from settings
@@ -49,10 +79,9 @@ else:
     # PostgreSQL configuration for production (Supabase)
     engine_kwargs = {
         "pool_pre_ping": True,
-        "pool_recycle": 60,
+        "pool_recycle": 1800,
         "pool_reset_on_return": None,
         "connect_args": {
-            # Fail fast on dead connections instead of hanging the request
             "connect_timeout": 10,
             "keepalives": 1,
             "keepalives_idle": 30,

@@ -412,18 +412,23 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Logbook page HTML
         """
+        from app.infrastructure.database.connection import execute_with_retry
+
         weeks_data = _get_weeks_data(db, current_user.id, "all")
         current_week = _calculate_current_week(db, current_user.id)
-        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
-        offline_mode_enabled = bool(getattr(student_profile, "setting_offline_mode", False)) if student_profile else False
         
+        def _safe_query():
+            return db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        student_profile = execute_with_retry(_safe_query)
+        offline_mode_enabled = bool(getattr(student_profile, "setting_offline_mode", False)) if student_profile else False
+
         content = LogbookPage(
             weeks_data=weeks_data,
             current_week=current_week,
             total_weeks=25,
             offline_mode_enabled=offline_mode_enabled,
         )
-        
+
         return DashboardLayout(
             content,
             sidebar=StudentSidebarNav(active_page="logbook"),
@@ -445,6 +450,8 @@ def setup_student_routes(app: FastHTML):
         Returns:
             Modal body HTML (content only)
         """
+        from app.infrastructure.database.connection import execute_with_retry
+
         if day_date == "today":
             day_date = date.today().isoformat()
 
@@ -452,7 +459,10 @@ def setup_student_routes(app: FastHTML):
         try:
             target_date = date.fromisoformat(day_date)
             today = date.today()
-            student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+            
+            def _safe_profile_query():
+                return db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+            student_profile = execute_with_retry(_safe_profile_query)
             location_enabled = bool(getattr(student_profile, "setting_location_service", True)) if student_profile else True
 
             if target_date.weekday() >= 5:
@@ -461,10 +471,12 @@ def setup_student_routes(app: FastHTML):
             if target_date > today:
                 return LogAccessBlockedModalBody("Sorry future entry not allowed")
 
-            day_log = db.query(DailyLog).filter(
-                DailyLog.student_id == current_user.id,
-                DailyLog.log_date == target_date,
-            ).first()
+            def _safe_log_query():
+                return db.query(DailyLog).filter(
+                    DailyLog.student_id == current_user.id,
+                    DailyLog.log_date == target_date,
+                ).first()
+            day_log = execute_with_retry(_safe_log_query)
 
             if target_date < today and not day_log:
                 return LogAccessBlockedModalBody("Log window passed, please contact your supervisor")
@@ -719,7 +731,11 @@ def setup_student_routes(app: FastHTML):
     @require_role(UserRole.STUDENT)
     async def sync_offline_entry(request: Request, db: Session = None, current_user: Optional[User] = None):
         """Sync a single offline log entry (JSON)."""
-        student_profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        from app.infrastructure.database.connection import execute_with_retry
+
+        def _safe_profile_query():
+            return db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+        student_profile = execute_with_retry(_safe_profile_query)
         offline_mode_enabled = bool(getattr(student_profile, "setting_offline_mode", False)) if student_profile else False
         if not offline_mode_enabled:
             return JSONResponse({"error": "Offline mode is disabled in profile settings."}, status_code=403)
@@ -791,16 +807,18 @@ def setup_student_routes(app: FastHTML):
 def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> List[Dict]:
     """Helper to get and format weeks data."""
     from app.domain.models.user import StudentProfile
-    
-    # 1. Get student profile for SIWES dates
-    student_profile = db.query(StudentProfile).filter(
-        StudentProfile.user_id == student_id
-    ).first()
+    from app.infrastructure.database.connection import execute_with_retry, SessionLocal
+
+    def _safe_query():
+        return db.query(StudentProfile).filter(
+            StudentProfile.user_id == student_id
+        ).first()
+
+    student_profile = execute_with_retry(_safe_query)
     
     if not student_profile:
         return []
     
-    # 2. Get placement
     repo = PlacementRepository(db)
     placement = repo.get_active_placement(student_id)
     if not placement:
@@ -890,10 +908,14 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
 def _calculate_current_week(db: Session, student_id: str) -> int:
     """Calculate current SIWES week from student profile start date."""
     from app.domain.models.user import StudentProfile
+    from app.infrastructure.database.connection import execute_with_retry
 
-    student_profile = db.query(StudentProfile).filter(
-        StudentProfile.user_id == student_id
-    ).first()
+    def _safe_query():
+        return db.query(StudentProfile).filter(
+            StudentProfile.user_id == student_id
+        ).first()
+
+    student_profile = execute_with_retry(_safe_query)
     if not student_profile or not student_profile.siwes_start_date:
         return 1
 
