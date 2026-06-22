@@ -330,7 +330,9 @@ class LogService:
         ).first()
         if not profile:
             raise ValueError("Student profile not found")
-        days_since_start = (log_date - profile.siwes_start_date).days
+        from datetime import timedelta
+        start_monday = profile.siwes_start_date - timedelta(days=profile.siwes_start_date.weekday())
+        days_since_start = (log_date - start_monday).days
         week_number = (days_since_start // 7) + 1
         
         return week_number

@@ -807,11 +807,12 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
         return []
         
     start_date = student_profile.siwes_start_date
+    start_monday = start_date - timedelta(days=start_date.weekday())
     service = LogService(db)
     
     # Calculate current week
     today = date.today()
-    days_since_start = (today - start_date).days
+    days_since_start = (today - start_monday).days
     current_week_num = max(1, min((days_since_start // 7) + 1, 25))
     
     # 2. Get Logs
@@ -839,10 +840,7 @@ def _get_weeks_data(db: Session, student_id: str, filter_type: str = "all") -> L
         if week_num < 1 or week_num > 25: continue
         
         # Calculate Monday of that week
-        week_start = start_date + timedelta(weeks=week_num - 1)
-        
-        # Ensure week_start is Monday? 
-        # Placement logic assumes start_date aligns with program start which is usually Monday.
+        week_start = start_monday + timedelta(weeks=week_num - 1)
         
         days_data = []
         
@@ -899,7 +897,8 @@ def _calculate_current_week(db: Session, student_id: str) -> int:
     if not student_profile or not student_profile.siwes_start_date:
         return 1
 
-    days_since_start = (date.today() - student_profile.siwes_start_date).days
+    start_monday = student_profile.siwes_start_date - timedelta(days=student_profile.siwes_start_date.weekday())
+    days_since_start = (date.today() - start_monday).days
     return max(1, min((days_since_start // 7) + 1, 25))
 
 
