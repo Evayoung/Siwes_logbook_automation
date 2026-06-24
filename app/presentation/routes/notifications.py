@@ -357,14 +357,44 @@ def register_notification_routes(app):
     # ------------------------------------------------------------------
 
     @app.get("/api/presence")
-    @require_auth()
-    def presence_check(request: Request, db: Session = None, current_user: User = None):
+    def presence_check(request: Request):
         """Return online/offline status for requested user IDs.
+
+        Uses cookie-based auth (no DB query) so this endpoint stays
+        available even when the database connection is temporarily down.
 
         Uses two signals so it works across multiple ASGI workers:
         1. Local NotificationManager (WS/SSE connection on *this* worker)
         2. Recent DB activity (chat messages or call logs within 10 min)
         """
+        # --- lightweight auth: unsign session cookie directly (no DB) ---
+        user_id = None
+        session = getattr(request, "session", None)
+        if session and isinstance(session, dict):
+            user_id = session.get("user_id")
+        if not user_id:
+            try:
+                from itsdangerous import URLSafeTimedSerializer
+                from app.config import get_settings
+                settings = get_settings()
+                serializer = URLSafeTimedSerializer(settings.secret_key, salt="starlette.session")
+                cookie_val = request.cookies.get("siwes_session")
+                if cookie_val:
+                    data = serializer.loads(cookie_val)
+                    if isinstance(data, dict):
+                        user_id = data.get("user_id")
+                        exp = data.get("expires_at")
+                        if exp:
+                            try:
+                                if datetime.fromisoformat(exp) < datetime.utcnow():
+                                    user_id = None
+                            except (ValueError, TypeError):
+                                pass
+            except Exception:
+                pass
+        if not user_id:
+            return JSONResponse({}, status_code=401)
+
         ids_param = request.query_params.get("ids", "")
         if not ids_param:
             return JSONResponse({})
@@ -380,7 +410,11 @@ def register_notification_routes(app):
         recent_cutoff = datetime.utcnow() - timedelta(minutes=10)
         recently_active = set()
 
+        db = None
         try:
+            from app.infrastructure.database.connection import get_db_session
+            db = get_db_session()
+
             # Recent chat messages (sent by the user)
             chat_senders = db.query(ChatMessage.sender_id).filter(
                 ChatMessage.sender_id.in_(user_ids),
@@ -408,10 +442,12 @@ def register_notification_routes(app):
                     recently_active.add(c.supervisor_id)
         except Exception as exc:
             print(f"[PRESENCE] DB check failed (non-fatal): {exc}")
-            try:
-                db.rollback()
-            except Exception:
-                pass
+        finally:
+            if db:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
         result = {}
         for uid in user_ids:
