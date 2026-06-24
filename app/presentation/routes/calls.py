@@ -67,7 +67,7 @@ def _render_livekit_call_page(
     return_url: str,
     end_url: str,
     status_url: str,
-    auto_redirect_statuses: str = "completed,declined,missed",
+    auto_redirect_statuses: str = "completed,declined,missed,cancelled",
 ):
     """Render an in-app LiveKit call page with zero prejoin config."""
     ws_url_js = json.dumps(livekit_ws_url)
@@ -201,10 +201,60 @@ def _render_livekit_call_page(
                         id="video-btn",
                         cls="call-btn" + ("" if video_enabled else " d-none"),
                     ),
-                    Button("End & Return", id="end-btn", cls="call-btn danger"),
+                    Button(
+                        "End & Return",
+                        id="end-btn",
+                        cls="call-btn danger",
+                        **{
+                            "type": "button",
+                            "onclick": "return window.__siwesEndCall ? window.__siwesEndCall(event) : true;",
+                        },
+                    ),
                     cls="call-controls",
                 ),
                 cls="call-shell",
+            ),
+            Script(
+                """
+                window.__siwesCallReturnUrl = __RETURN_URL__;
+                window.__siwesCallEndUrl = __END_URL__;
+                window.__siwesCallLeaving = false;
+                window.__siwesEndCall = function(event) {
+                    if (event && event.preventDefault) event.preventDefault();
+                    if (window.__siwesCallLeaving) return false;
+                    window.__siwesCallLeaving = true;
+
+                    var statusEl = document.getElementById('call-status');
+                    if (statusEl) statusEl.textContent = 'Ending call...';
+
+                    try {
+                        var payload = new Blob(['{}'], { type: 'application/json' });
+                        if (navigator.sendBeacon) {
+                            navigator.sendBeacon(window.__siwesCallEndUrl, payload);
+                        } else {
+                            fetch(window.__siwesCallEndUrl, {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                keepalive: true,
+                            }).catch(function() {});
+                        }
+                    } catch (_) {
+                        try {
+                            fetch(window.__siwesCallEndUrl, {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                keepalive: true,
+                            }).catch(function() {});
+                        } catch (__) {}
+                    }
+
+                    setTimeout(function() {
+                        window.location.href = window.__siwesCallReturnUrl;
+                    }, 120);
+                    return false;
+                };
+                """.replace("__RETURN_URL__", return_url_js)
+                   .replace("__END_URL__", end_url_js)
             ),
             Script(
                 """
@@ -259,10 +309,13 @@ def _render_livekit_call_page(
                 function goBack() {
                     if (redirecting) return;
                     redirecting = true;
+                    window.__siwesCallLeaving = true;
                     window.location.href = returnUrl;
                 }
 
                 async function endAndReturn() {
+                    if (window.__siwesCallLeaving) return;
+                    window.__siwesCallLeaving = true;
                     try {
                         await fetch(endUrl, {
                             method: 'POST',
@@ -272,7 +325,7 @@ def _render_livekit_call_page(
                         console.error('[CALL] Failed to end call:', e);
                     } finally {
                         try { room.disconnect(); } catch (_) {}
-                        goBack();
+                        window.location.href = returnUrl;
                     }
                 }
 
@@ -425,7 +478,10 @@ def _render_livekit_call_page(
                     }
                 });
 
-                endBtn?.addEventListener('click', endAndReturn);
+                endBtn?.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    endAndReturn();
+                });
                 enableAudioBtn?.addEventListener('click', async () => {
                     try {
                         await room.localParticipant.setMicrophoneEnabled(true);
@@ -441,7 +497,10 @@ def _render_livekit_call_page(
                 });
 
                 window.addEventListener('beforeunload', () => {
-                    try { navigator.sendBeacon(endUrl); } catch (_) {}
+                    try {
+                        var payload = new Blob(['{}'], { type: 'application/json' });
+                        navigator.sendBeacon(endUrl, payload);
+                    } catch (_) {}
                 });
 
                 async function start() {
