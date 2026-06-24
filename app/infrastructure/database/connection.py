@@ -26,14 +26,14 @@ T = TypeVar('T')
 
 def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
     """Execute a database operation with retry on transient SSL errors.
-    
+
     Args:
         fn: Function to execute that may raise OperationalError or TimeoutError
         max_retries: Maximum number of retry attempts (default 2)
-        
+
     Returns:
         Result of the function call
-        
+
     Raises:
         OperationalError: If all retries fail
         TimeoutError: If connection pool timeout after all retries
@@ -52,39 +52,39 @@ def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
     raise last_error  # type: ignore[misc]
 
 
-# Get database URL from settings
+# ---------------------------------------------------------------------------
+# Engine setup
+# ---------------------------------------------------------------------------
+
 settings = get_settings()
 DATABASE_URL = settings.db_url
 
-# Create engine with appropriate configuration
 if DATABASE_URL.startswith("sqlite"):
-    # SQLite configuration for development
+    # SQLite for local development
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
         echo=settings.debug,
     )
-    
-    # Enable foreign key constraints for SQLite
+
     @event.listens_for(Engine, "connect")
     def set_sqlite_pragma(dbapi_conn, connection_record):
-        """Enable foreign key constraints for SQLite connections.
-        
-        Args:
-            dbapi_conn: Database API connection object.
-            connection_record: Connection record (unused).
-        """
+        """Enable foreign key constraints for SQLite connections."""
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
 else:
-    # PostgreSQL configuration for production (Supabase)
+    # PostgreSQL — direct Supabase connection (db.*.supabase.co:5432)
+    # pool_pre_ping=True means SQLAlchemy will test each connection before use
+    # and automatically reconnect if it has been dropped — no more SSL crashes.
     engine_kwargs = {
-        "pool_recycle": 1800,
+        "pool_pre_ping": True,        # detect & reconnect stale connections automatically
+        "pool_recycle": 300,           # recycle connections every 5 minutes
         "pool_reset_on_return": None,
         "connect_args": {
-            "connect_timeout": 10,
+            "connect_timeout": 10,     # fail fast on dead connections (not hang)
             "keepalives": 1,
             "keepalives_idle": 30,
             "keepalives_interval": 10,
@@ -100,25 +100,30 @@ else:
 
     engine = create_engine(DATABASE_URL, **engine_kwargs)
 
-# Create session factory
+
+# Session factory
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
-    bind=engine
+    bind=engine,
 )
 
 
+# ---------------------------------------------------------------------------
+# DB initialisation helpers
+# ---------------------------------------------------------------------------
+
 def init_db() -> None:
     """Initialize database by creating all tables.
-    
+
     Creates all tables defined in SQLAlchemy models. Should be called
     once during application startup or via migration scripts.
-    
+
     Example:
         >>> from app.infrastructure.database.connection import init_db
         >>> init_db()
         # All tables created
-    
+
     Note:
         In production, use Alembic migrations instead of this function.
         This is primarily for development and testing.
@@ -179,14 +184,14 @@ def _apply_schema_patches() -> None:
 
 def drop_db() -> None:
     """Drop all database tables.
-    
+
     WARNING: This will delete all data! Only use in development/testing.
-    
+
     Example:
         >>> from app.infrastructure.database.connection import drop_db
         >>> drop_db()
         # All tables and data deleted
-    
+
     Raises:
         RuntimeError: If called in production environment.
     """
@@ -198,21 +203,21 @@ def drop_db() -> None:
 @contextmanager
 def get_db() -> Generator[Session, None, None]:
     """Get database session with automatic cleanup.
-    
+
     Provides a database session that automatically commits on success
     and rolls back on error. Session is closed after use.
-    
+
     Yields:
         SQLAlchemy Session instance.
-    
+
     Example:
         >>> from app.infrastructure.database.connection import get_db
-        >>> 
+        >>>
         >>> with get_db() as db:
         ...     user = db.query(User).filter_by(email="test@example.com").first()
         ...     print(user.email)
         test@example.com
-    
+
     Note:
         For FastHTML routes, use dependency injection instead:
         ```python
@@ -234,22 +239,22 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_db_session() -> Session:
     """Get a new database session.
-    
+
     Returns a new session that must be manually closed by the caller.
     Prefer using get_db() context manager for automatic cleanup.
-    
+
     Returns:
         SQLAlchemy Session instance.
-    
+
     Example:
         >>> from app.infrastructure.database.connection import get_db_session
-        >>> 
+        >>>
         >>> db = get_db_session()
         >>> try:
         ...     users = db.query(User).all()
         ... finally:
         ...     db.close()
-    
+
     Note:
         Remember to close the session when done to avoid connection leaks.
     """

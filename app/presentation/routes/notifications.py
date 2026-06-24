@@ -1,4 +1,4 @@
-"""SSE notification routes for real-time push notifications."""
+"""Notification routes — WebSocket (primary) + SSE + poll (fallbacks)."""
 
 from fasthtml.common import *
 from sqlalchemy.orm import Session
@@ -6,6 +6,8 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 from sqlalchemy import desc
+from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
+from starlette.routing import WebSocketRoute
 
 from app.infrastructure.security.session import require_auth
 from app.application.services.notifications import notification_manager
@@ -17,30 +19,74 @@ from app.infrastructure.database.connection import get_db_session
 from app.presentation.routes.calls import _build_join_url_for_user, _extract_initiator_id
 
 
-def register_notification_routes(app):
-    """Register SSE notification routes.
-    
-    Args:
-        app: FastHTML application instance
+# ---------------------------------------------------------------------------
+# WebSocket handler (standalone — registered separately on the Starlette router)
+# ---------------------------------------------------------------------------
+
+async def ws_notifications_handler(websocket: WebSocket):
+    """WebSocket endpoint for real-time notifications.
+
+    Replaces the /notifications/poll HTTP-polling mechanism.
+    One persistent connection per browser tab — zero DB queries while idle.
+    Server pushes events via notification_manager.send_to_user().
+
+    Auth: reads user_id from the signed Starlette session cookie.
     """
-    
+    # Authenticate via session cookie
+    session = getattr(websocket, "session", None)
+    user_id = session.get("user_id") if session else None
+    if not user_id:
+        await websocket.close(code=4001)
+        return
+
+    await websocket.accept()
+    notification_manager.add_ws_connection(user_id, websocket)
+    print(f"[WS] /ws/notifications accepted for user {user_id}")
+
+    try:
+        # Send a welcome frame so the client knows the WS is live
+        await websocket.send_text(json.dumps({"type": "connected", "user_id": user_id}))
+
+        while True:
+            # Wait for a client frame (ping/pong keepalive) with a 25-second timeout.
+            # If no client frame arrives in 25 s we send a server ping.
+            try:
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=25.0)
+                if msg == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # Server-initiated ping
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text("ping")
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        print(f"[WS] unexpected error for {user_id}: {exc}")
+    finally:
+        notification_manager.remove_ws_connection(user_id, websocket)
+
+
+# ---------------------------------------------------------------------------
+# HTTP routes (SSE stream + poll fallback + inbox/mark-read)
+# ---------------------------------------------------------------------------
+
+def register_notification_routes(app):
+    """Register all notification routes and mount the WebSocket handler."""
+
+    # Mount WebSocket route on the Starlette router
+    app.router.routes.insert(0, WebSocketRoute("/ws/notifications", ws_notifications_handler))
+
+    # ------------------------------------------------------------------
+    # SSE stream (kept as fallback for clients that can't use WS)
+    # ------------------------------------------------------------------
+
     @app.get("/notifications/stream")
     async def notification_stream(request: Request):
-        """SSE endpoint for real-time notifications.
-        
-        Maintains a persistent connection and pushes events to the client.
-        
-        Args:
-            request: FastHTML request object
-            
-        Yields:
-            SSE formatted event strings
-        """
-        # Manual authentication check for SSE
-        # Access session data directly from request
+        """SSE fallback endpoint.  Prefer /ws/notifications for new clients."""
         if not hasattr(request, "session") or "user_id" not in request.session:
             return Response(status_code=204)
-        
+
         user_id = request.session["user_id"]
         if not _notifications_enabled_for_user(user_id):
             async def disabled_generator():
@@ -50,63 +96,48 @@ def register_notification_routes(app):
             return StreamingResponse(
                 disabled_generator(),
                 media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                    "Connection": "keep-alive"
-                }
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
             )
+
         queue = asyncio.Queue()
-        
-        # Register this connection
         notification_manager.add_connection(user_id, queue)
-        
+
         async def event_generator():
-            """Generate SSE events from the queue."""
             try:
-                # Send initial connection confirmation
                 yield f"data: {json.dumps({'type': 'connected', 'user_id': user_id})}\n\n"
-                
-                # Keep connection alive and send events
                 while True:
-                    # Wait for events with timeout for keep-alive
                     try:
                         event_data = await asyncio.wait_for(queue.get(), timeout=30.0)
                         yield f"data: {event_data}\n\n"
                     except asyncio.TimeoutError:
-                        # Send keep-alive comment
                         yield ": keep-alive\n\n"
-                        
             except asyncio.CancelledError:
-                # Connection closed by client
                 pass
             finally:
-                # Clean up connection
                 notification_manager.remove_connection(user_id, queue)
-        
+
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive"
-            }
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
         )
+
+    # ------------------------------------------------------------------
+    # Inbox (bell count)
+    # ------------------------------------------------------------------
 
     @app.get("/notifications/inbox")
     @require_auth()
     def notifications_inbox(request: Request, db: Session = None, current_user: User = None):
-        """Return unread chat notifications for top-bar bell."""
-        if current_user.role == UserRole.STUDENT:
-            profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
-            if profile and not bool(getattr(profile, "setting_notifications", True)):
-                return JSONResponse({"count": 0, "items": []})
-        notif_service = NotificationService(db)
-        unread = notif_service.get_user_notifications(current_user.id, unread_only=True, limit=20)
-        items = []
-        for n in unread:
-            items.append(
+        """Return unread notifications for the top-bar bell."""
+        try:
+            if current_user.role == UserRole.STUDENT:
+                profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+                if profile and not bool(getattr(profile, "setting_notifications", True)):
+                    return JSONResponse({"count": 0, "items": []})
+            notif_service = NotificationService(db)
+            unread = notif_service.get_user_notifications(current_user.id, unread_only=True, limit=20)
+            items = [
                 {
                     "id": n.id,
                     "title": n.title,
@@ -115,32 +146,51 @@ def register_notification_routes(app):
                     "time": n.created_at.isoformat() if n.created_at else "",
                     "action_url": n.action_url or "#",
                 }
-            )
+                for n in unread
+            ]
+            return JSONResponse({"count": len(items), "items": items})
+        except Exception as exc:
+            print(f"[INBOX] error: {exc}")
+            return JSONResponse({"count": 0, "items": []})
 
-        return JSONResponse({"count": len(items), "items": items})
+    # ------------------------------------------------------------------
+    # Mark all read
+    # ------------------------------------------------------------------
 
     @app.post("/notifications/mark-all-read")
     @require_auth()
     def mark_all_read(request: Request, db: Session = None, current_user: User = None):
-        """Mark all unread incoming chat messages as read for current user."""
-        if current_user.role == UserRole.STUDENT:
-            profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
-            if profile and not bool(getattr(profile, "setting_notifications", True)):
-                return JSONResponse({"updated": 0})
-        updated = db.query(Notification).filter(
-            Notification.user_id == current_user.id,
-            Notification.is_read == False,
-        ).update({"is_read": True}, synchronize_session=False)
-        db.commit()
-        return JSONResponse({"updated": updated})
+        """Mark all unread notifications as read for the current user."""
+        try:
+            if current_user.role == UserRole.STUDENT:
+                profile = db.query(StudentProfile).filter(StudentProfile.user_id == current_user.id).first()
+                if profile and not bool(getattr(profile, "setting_notifications", True)):
+                    return JSONResponse({"updated": 0})
+            updated = db.query(Notification).filter(
+                Notification.user_id == current_user.id,
+                Notification.is_read == False,
+            ).update({"is_read": True}, synchronize_session=False)
+            db.commit()
+            return JSONResponse({"updated": updated})
+        except Exception as exc:
+            print(f"[MARK-READ] error: {exc}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            return JSONResponse({"updated": 0})
+
+    # ------------------------------------------------------------------
+    # Poll fallback (called at a much longer interval now — 30 s)
+    # ------------------------------------------------------------------
 
     @app.get("/notifications/poll")
     @require_auth()
     def notifications_poll(request: Request, db: Session = None, current_user: User = None):
-        """DB-backed notification polling for broker-free deployments.
+        """HTTP-polling fallback.  Clients with an active WS skip this.
 
         Intentionally read-only. Returns empty events on any DB error so a
-        transient Supabase SSL drop never crashes the ASGI app with a 500.
+        transient Supabase error never crashes the ASGI app with a 500.
         """
         try:
             events = []
@@ -242,9 +292,6 @@ def register_notification_routes(app):
             return JSONResponse({"events": events})
 
         except Exception as exc:
-            # Transient DB errors (Supabase SSL drops, pool exhaustion) must
-            # never crash the ASGI app with a 500.  Return empty events and let
-            # the next poll cycle succeed normally.
             print(f"[POLL] ignored transient error: {exc}")
             try:
                 db.rollback()
@@ -252,6 +299,10 @@ def register_notification_routes(app):
                 pass
             return JSONResponse({"events": []})
 
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _notifications_enabled_for_user(user_id: str) -> bool:
     db = get_db_session()

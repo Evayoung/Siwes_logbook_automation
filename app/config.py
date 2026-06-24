@@ -146,8 +146,8 @@ class Settings(BaseSettings):
         description="SQLAlchemy max overflow connections for PostgreSQL deployments"
     )
     db_disable_pooling: bool = Field(
-        default=True,
-        description="Disable SQLAlchemy connection pooling for constrained cloud Postgres poolers"
+        default=False,
+        description="Disable SQLAlchemy connection pooling. False=use pool (for direct connections). True=NullPool (for pgbouncer transaction mode)."
     )
     
     app_name: str = Field(
@@ -198,9 +198,16 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _normalize_database_url(url: str) -> str:
-        """Normalize external Postgres URLs for SQLAlchemy."""
+        """Normalize external Postgres URLs for SQLAlchemy.
+
+        The 5432→6543 port conversion ONLY applies to pooler URLs
+        (aws-*.pooler.supabase.com).  Direct connection URLs
+        (db.*.supabase.co) must keep port 5432.
+        """
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
+        # Only convert pooler URLs to transaction-mode port 6543.
+        # Direct db.*.supabase.co connections must stay on 5432.
         if ".pooler.supabase.com:5432" in url:
             url = url.replace(".pooler.supabase.com:5432", ".pooler.supabase.com:6543")
         if "supabase" in url.lower() and "sslmode=" not in url.lower():

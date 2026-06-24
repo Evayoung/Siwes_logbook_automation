@@ -14,9 +14,11 @@
     let notificationMenuOpen = false;
     let olderLoadSnapshot = null;
     const recentEventKeys = new Map();
-    const pollIntervalMs = 1500;
+    // Poll is now the last-resort fallback (30 s). WebSocket is primary.
+    const pollIntervalMs = 30000;
     let pollTimer = null;
     let pollInFlight = false;
+    let wsConnected = false;   // true while WS is open — suppresses polling
     const seenPollEvents = new Set(
         JSON.parse(localStorage.getItem('siwes_seen_poll_events') || '[]')
     );
@@ -227,7 +229,8 @@
     }
 
     async function pollNotifications() {
-        if (!navigator.onLine || pollInFlight) return;
+        // Skip if WebSocket is connected — WS pushes events in real-time.
+        if (!navigator.onLine || pollInFlight || wsConnected) return;
         pollInFlight = true;
         try {
             const response = await fetch('/notifications/poll', {
@@ -250,7 +253,7 @@
 
     function startNotificationPolling() {
         if (pollTimer) return;
-        pollNotifications();
+        if (!wsConnected) pollNotifications();
         pollTimer = setInterval(pollNotifications, pollIntervalMs);
     }
     window.__siwesStartNotificationPolling = startNotificationPolling;
@@ -259,6 +262,83 @@
         if (!pollTimer) return;
         clearInterval(pollTimer);
         pollTimer = null;
+    }
+
+    // ------------------------------------------------------------------
+    // WebSocket (primary real-time transport)
+    // ------------------------------------------------------------------
+    let _ws = null;
+    let _wsReconnectDelay = 1000;
+    let _wsReconnectTimer = null;
+
+    function initializeWS() {
+        if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
+        if (!navigator.onLine) return;
+
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${proto}//${window.location.host}/ws/notifications`;
+
+        try {
+            _ws = new WebSocket(url);
+        } catch (e) {
+            console.warn('[WS] Could not construct WebSocket:', e);
+            scheduleWsReconnect();
+            return;
+        }
+
+        _ws.onopen = function () {
+            console.log('[WS] Connected to /ws/notifications');
+            wsConnected = true;
+            _wsReconnectDelay = 1000; // reset back-off
+            if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+            // WebSocket is live — stop polling to save DB connections
+            stopNotificationPolling();
+        };
+
+        _ws.onmessage = function (event) {
+            const raw = event.data;
+            if (raw === 'ping') { _ws.send('pong'); return; }
+            try {
+                const data = JSON.parse(raw);
+                if (data.type === 'connected') {
+                    console.log('[WS] Session confirmed:', data.user_id);
+                    return;
+                }
+                dispatchNotificationEvent(data);
+            } catch (e) {
+                console.warn('[WS] parse error', e);
+            }
+        };
+
+        _ws.onclose = function (evt) {
+            console.log('[WS] Closed (code', evt.code, ')— scheduling reconnect');
+            wsConnected = false;
+            _ws = null;
+            // Fall back to polling while WS is down
+            startNotificationPolling();
+            scheduleWsReconnect();
+        };
+
+        _ws.onerror = function () {
+            // onclose fires right after, which handles reconnect
+        };
+    }
+    window.__siwesInitializeWS = initializeWS;
+
+    function scheduleWsReconnect() {
+        if (_wsReconnectTimer) return;
+        _wsReconnectTimer = setTimeout(function () {
+            _wsReconnectTimer = null;
+            initializeWS();
+        }, _wsReconnectDelay);
+        // Exponential back-off: 1 s, 2 s, 4 s … max 30 s
+        _wsReconnectDelay = Math.min(_wsReconnectDelay * 2, 30000);
+    }
+
+    function closeWS() {
+        if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+        if (_ws) { try { _ws.close(); } catch (_) {} _ws = null; }
+        wsConnected = false;
     }
 
     async function refreshNotificationBell() {
@@ -706,6 +786,33 @@
             if (!target) return;
             if (target.id === 'chat-messages-list') {
                 scrollChatToBottom(true);
+        });
+
+        document.body.addEventListener('new_message_notification', function () {
+            refreshNotificationBell();
+        });
+
+        document.body.addEventListener('log_save_result', function (event) {
+            const detail = event && event.detail ? event.detail : {};
+            const ok = !!detail.ok;
+            const queued = !!detail.queued;
+            const message = detail.message || (ok ? 'Log saved.' : 'Failed to save log.');
+            showToast(message, ok ? (queued ? 'info' : 'success') : 'danger');
+            if (!ok) return;
+            const modalEl = document.getElementById('logModal');
+            if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+                const modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.hide();
+            }
+            if (queued) return;
+            setTimeout(() => window.location.reload(), 700);
+        });
+
+        document.body.addEventListener('htmx:afterSwap', function (event) {
+            const target = event.detail && event.detail.target;
+            if (!target) return;
+            if (target.id === 'chat-messages-list') {
+                scrollChatToBottom(true);
                 return;
             }
             if (target.id === 'student-communication-root' || target.id === 'supervisor-communication-root') {
@@ -720,21 +827,27 @@
         initializeNetworkBadge();
         initializeTopbarNotificationUI();
         refreshNotificationBell();
-        closeSSE();
+
+        // Primary: connect via WebSocket (zero DB queries while idle)
+        initializeWS();
+        // Fallback polling starts automatically if WS fails to connect
+        // (see wsConnected flag inside startNotificationPolling)
         startNotificationPolling();
         
         // Close SSE before any HTMX navigation
         document.body.addEventListener('htmx:beforeNavigate', function () {
-            console.log('[SSE] Closing connection before navigation');
             closeSSE();
+            // Keep WS alive across HTMX navigation
         });
         
         window.addEventListener('offline', function () {
             closeSSE();
+            closeWS();
             stopNotificationPolling();
         });
         window.addEventListener('online', function () {
             refreshNotificationBell();
+            initializeWS();
             startNotificationPolling();
         });
         setTimeout(() => scrollChatToBottom(true), 30);
