@@ -394,8 +394,12 @@ def _render_livekit_call_page(
                     }
                 });
 
-                room.on(RoomEvent.Disconnected, () => {
-                    goBack();
+                room.on(RoomEvent.Disconnected, (reason) => {
+                    console.log('[CALL] disconnected, reason:', reason);
+                    if (!redirecting) {
+                        setStatus('Disconnected from call.');
+                        setTimeout(goBack, 2000);
+                    }
                 });
 
                 muteBtn?.addEventListener('click', async () => {
@@ -441,11 +445,17 @@ def _render_livekit_call_page(
                 });
 
                 async function start() {
+                    console.log('[CALL] start() called, wsUrl:', wsUrl, 'room:', roomName, 'mode:', callMode);
                     try {
                         setStatus('Connecting to room...');
+                        console.log('[CALL] attempting room.connect...');
                         await room.connect(wsUrl, token);
+                        console.log('[CALL] room.connect() succeeded');
+                        setStatus('Room connected. Enabling microphone...');
                         await enableLocalTracks();
+                        console.log('[CALL] local tracks enabled');
                         await enableAudioPlayback();
+                        console.log('[CALL] audio playback enabled');
 
                         if (room.remoteParticipants.size > 0) {
                             setStatus('Connected');
@@ -454,8 +464,11 @@ def _render_livekit_call_page(
                         }
                     } catch (e) {
                         console.error('[CALL] connect failed', e);
-                        setStatus('Unable to connect. Returning...');
-                        setTimeout(goBack, 1200);
+                        console.error('[CALL] error name:', e.name, 'message:', e.message);
+                        const errorMsg = e.message || e.name || String(e);
+                        setStatus('Connection failed: ' + errorMsg + '. Returning in 3s...');
+                        try { room.disconnect(); } catch (_) {}
+                        setTimeout(goBack, 3000);
                     }
                 }
 
@@ -965,6 +978,7 @@ def register_call_routes(app):
         return_url = f"/student/communication?tab=calls&peer_id={call_log.supervisor_id}"
         end_url = f"/api/calls/{call_log.id}/end"
         status_url = f"/api/calls/{call_log.id}/status"
+        print(f"[CALL-PAGE] student={current_user.id} room={room_name} ws_url={daily_service.livekit_url!r} video={video_enabled}")
         return _render_livekit_call_page(
             page_title=("Video Call - SIWES Logbook" if video_enabled else "Voice Call - SIWES Logbook"),
             livekit_ws_url=daily_service.livekit_url,
@@ -1042,6 +1056,7 @@ def register_call_routes(app):
         return_url = f"/supervisor/communication?tab=calls&student_id={call_log.student_id}&peer_id={call_log.student_id}"
         end_url = f"/api/calls/{call_log.id}/end"
         status_url = f"/api/calls/{call_log.id}/status"
+        print(f"[CALL-PAGE] supervisor={current_user.id} room={room_name} ws_url={daily_service.livekit_url!r} video={video_enabled}")
         return _render_livekit_call_page(
             page_title=("Video Call - SIWES Logbook" if video_enabled else "Voice Call - SIWES Logbook"),
             livekit_ws_url=daily_service.livekit_url,
