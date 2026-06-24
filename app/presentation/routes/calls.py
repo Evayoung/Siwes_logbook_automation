@@ -207,18 +207,18 @@ def _render_livekit_call_page(
                 cls="call-shell",
             ),
             Script(
-                f"""
-                import {{ Room, RoomEvent }} from 'https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.esm.mjs';
+                """
+                import { Room, RoomEvent } from 'https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.esm.mjs';
 
-                const wsUrl = {ws_url_js};
-                const token = {token_js};
-                const roomName = {room_js};
-                const displayName = {display_name_js};
-                const returnUrl = {return_url_js};
-                const endUrl = {end_url_js};
-                const statusUrl = {status_url_js};
-                const terminalStatuses = new Set({statuses_js});
-                const callMode = "{mode_js}";
+                const wsUrl = __WS_URL__;
+                const token = __TOKEN__;
+                const roomName = __ROOM__;
+                const displayName = __DISPLAY_NAME__;
+                const returnUrl = __RETURN_URL__;
+                const endUrl = __END_URL__;
+                const statusUrl = __STATUS_URL__;
+                const terminalStatuses = new Set(__STATUSES__);
+                const callMode = "__MODE__";
 
                 const statusEl = document.getElementById('call-status');
                 const remoteMedia = document.getElementById('remote-media');
@@ -232,236 +232,244 @@ def _render_livekit_call_page(
                 let micEnabled = true;
                 let camEnabled = callMode === 'video';
 
-                const room = new Room({{
+                const room = new Room({
                     adaptiveStream: true,
                     dynacast: true,
-                    audioCaptureDefaults: {{
+                    audioCaptureDefaults: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
-                    }},
-                    audioOutput: {{ deviceId: 'default' }},
-                }});
+                    },
+                    audioOutput: { deviceId: 'default' },
+                });
 
-                function setStatus(message) {{
+                function setStatus(message) {
                     if (statusEl) statusEl.textContent = message;
-                }}
+                }
 
-                function showAudioUnlock(message) {{
+                function showAudioUnlock(message) {
                     if (message) setStatus(message);
                     if (audioOverlay) audioOverlay.classList.remove('d-none');
-                }}
+                }
 
-                function hideAudioUnlock() {{
+                function hideAudioUnlock() {
                     if (audioOverlay) audioOverlay.classList.add('d-none');
-                }}
+                }
 
-                function goBack() {{
+                function goBack() {
                     if (redirecting) return;
                     redirecting = true;
                     window.location.href = returnUrl;
-                }}
+                }
 
-                async function endAndReturn() {{
-                    try {{
-                        await fetch(endUrl, {{
+                async function endAndReturn() {
+                    try {
+                        await fetch(endUrl, {
                             method: 'POST',
                             credentials: 'same-origin',
-                        }});
-                    }} catch (e) {{
+                        });
+                    } catch (e) {
                         console.error('[CALL] Failed to end call:', e);
-                    }} finally {{
-                        try {{ room.disconnect(); }} catch (_) {{}}
+                    } finally {
+                        try { room.disconnect(); } catch (_) {}
                         goBack();
-                    }}
-                }}
+                    }
+                }
 
-                async function checkStatus() {{
+                async function checkStatus() {
                     if (redirecting) return;
-                    try {{
-                        const response = await fetch(statusUrl, {{ credentials: 'same-origin' }});
+                    try {
+                        const response = await fetch(statusUrl, { credentials: 'same-origin' });
                         if (!response.ok) return;
                         const data = await response.json();
                         const st = String((data && data.status) || '');
                         if (terminalStatuses.has(st)) goBack();
-                    }} catch (e) {{
+                    } catch (e) {
                         console.error('[CALL] Status check failed:', e);
-                    }}
-                }}
+                    }
+                }
 
-                function clearRemoteMedia() {{
+                function clearRemoteMedia() {
                     const nodes = remoteMedia ? remoteMedia.querySelectorAll('video,audio') : [];
                     nodes.forEach(n => n.remove());
                     const wait = document.getElementById('remote-voice-state');
                     if (wait) wait.classList.remove('d-none');
-                }}
+                }
 
-                function attachRemoteTrack(track) {{
+                function attachRemoteTrack(track) {
                     if (!remoteMedia) return;
                     const wait = document.getElementById('remote-voice-state');
                     if (wait) wait.classList.add('d-none');
                     const el = track.attach();
                     el.autoplay = true;
                     el.playsInline = true;
-                    if (track.kind === 'audio') {{
+                    if (track.kind === 'audio') {
                         el.muted = false;
                         el.volume = 1.0;
                         el.controls = false;
-                    }}
+                    }
                     remoteMedia.appendChild(el);
-                    if (track.kind === 'audio') {{
+                    if (track.kind === 'audio') {
                         // Attempt immediate play, then retry after 500ms for autoplay restrictions
-                        el.play().then(hideAudioUnlock).catch(() => {{
-                            setTimeout(() => {{
-                                el.play().then(hideAudioUnlock).catch(() => {{
+                        el.play().then(hideAudioUnlock).catch(() => {
+                            setTimeout(() => {
+                                el.play().then(hideAudioUnlock).catch(() => {
                                     showAudioUnlock('Tap \'Enable Audio\' to hear the other participant.');
-                                }});
-                            }}, 500);
-                        }});
-                    }}
-                }}
+                                });
+                            }, 500);
+                        });
+                    }
+                }
 
-                async function enableAudioPlayback() {{
-                    try {{
+                async function enableAudioPlayback() {
+                    try {
                         if (room.startAudio) await room.startAudio();
                         const media = remoteMedia ? remoteMedia.querySelectorAll('audio,video') : [];
-                        for (const el of media) {{
-                            if (el.play) {{
-                                try {{ await el.play(); }} catch (_) {{}}
-                            }}
-                        }}
+                        for (const el of media) {
+                            if (el.play) {
+                                try { await el.play(); } catch (_) {}
+                            }
+                        }
                         hideAudioUnlock();
                         setStatus(room.remoteParticipants.size > 0 ? 'Connected' : 'Waiting for other participant...');
-                    }} catch (e) {{
+                    } catch (e) {
                         console.error('[CALL] audio unlock failed', e);
                         showAudioUnlock('Audio is still blocked. Check browser permissions and tap Enable Audio again.');
-                    }}
-                }}
+                    }
+                }
 
-                async function enableLocalTracks() {{
-                    try {{
+                async function enableLocalTracks() {
+                    try {
                         await room.localParticipant.setMicrophoneEnabled(true);
                         micEnabled = true;
                         muteBtn.textContent = 'Mute';
                         muteBtn.classList.add('active');
-                    }} catch (e) {{
+                    } catch (e) {
                         console.error('[CALL] microphone permission failed', e);
                         micEnabled = false;
                         muteBtn.textContent = 'Unmute';
                         muteBtn.classList.remove('active');
                         showAudioUnlock('Microphone permission is required. Allow microphone access, then tap Enable Audio.');
                         throw e;
-                    }}
+                    }
 
-                    if (callMode === 'video') {{
-                        try {{
+                    if (callMode === 'video') {
+                        try {
                             await room.localParticipant.setCameraEnabled(true);
                             camEnabled = true;
                             videoBtn.textContent = 'Camera Off';
                             videoBtn.classList.add('active');
-                        }} catch (e) {{
+                        } catch (e) {
                             console.error('[CALL] camera permission failed', e);
                             setStatus('Camera unavailable. Audio call is still active.');
                             camEnabled = false;
                             videoBtn.textContent = 'Camera On';
                             videoBtn.classList.remove('active');
-                        }}
-                    }} else {{
+                        }
+                    } else {
                         await room.localParticipant.setCameraEnabled(false);
-                    }}
-                }}
+                    }
+                }
 
-                room.on(RoomEvent.TrackSubscribed, (track) => {{
+                room.on(RoomEvent.TrackSubscribed, (track) => {
                     attachRemoteTrack(track);
                     setStatus('Connected');
-                }});
+                });
 
-                room.on(RoomEvent.TrackUnsubscribed, (track) => {{
-                    try {{ track.detach().forEach(el => el.remove()); }} catch (_) {{}}
+                room.on(RoomEvent.TrackUnsubscribed, (track) => {
+                    try { track.detach().forEach(el => el.remove()); } catch (_) {}
                     const hasMedia = !!remoteMedia.querySelector('video,audio');
                     if (!hasMedia) clearRemoteMedia();
-                }});
+                });
 
-                room.on(RoomEvent.ParticipantConnected, () => {{
+                room.on(RoomEvent.ParticipantConnected, () => {
                     setStatus('Connected');
-                }});
+                });
 
-                room.on(RoomEvent.ParticipantDisconnected, () => {{
-                    if (room.remoteParticipants.size === 0) {{
+                room.on(RoomEvent.ParticipantDisconnected, () => {
+                    if (room.remoteParticipants.size === 0) {
                         clearRemoteMedia();
                         setStatus('Other participant left');
                         setTimeout(endAndReturn, 1200);
-                    }}
-                }});
+                    }
+                });
 
-                room.on(RoomEvent.Disconnected, () => {{
+                room.on(RoomEvent.Disconnected, () => {
                     goBack();
-                }});
+                });
 
-                muteBtn?.addEventListener('click', async () => {{
+                muteBtn?.addEventListener('click', async () => {
                     micEnabled = !micEnabled;
-                    try {{
+                    try {
                         await room.localParticipant.setMicrophoneEnabled(micEnabled);
                         muteBtn.textContent = micEnabled ? 'Mute' : 'Unmute';
                         muteBtn.classList.toggle('active', micEnabled);
-                    }} catch (e) {{
+                    } catch (e) {
                         console.error('[CALL] mic toggle failed', e);
-                    }}
-                }});
+                    }
+                });
 
-                videoBtn?.addEventListener('click', async () => {{
+                videoBtn?.addEventListener('click', async () => {
                     if (callMode !== 'video') return;
                     camEnabled = !camEnabled;
-                    try {{
+                    try {
                         await room.localParticipant.setCameraEnabled(camEnabled);
                         videoBtn.textContent = camEnabled ? 'Camera Off' : 'Camera On';
                         videoBtn.classList.toggle('active', camEnabled);
-                    }} catch (e) {{
+                    } catch (e) {
                         console.error('[CALL] cam toggle failed', e);
-                    }}
-                }});
+                    }
+                });
 
                 endBtn?.addEventListener('click', endAndReturn);
-                enableAudioBtn?.addEventListener('click', async () => {{
-                    try {{
+                enableAudioBtn?.addEventListener('click', async () => {
+                    try {
                         await room.localParticipant.setMicrophoneEnabled(true);
                         micEnabled = true;
                         muteBtn.textContent = 'Mute';
                         muteBtn.classList.add('active');
-                    }} catch (e) {{
+                    } catch (e) {
                         console.error('[CALL] microphone retry failed', e);
                         showAudioUnlock('Microphone is still blocked. Please allow microphone permission in the browser.');
                         return;
-                    }}
+                    }
                     await enableAudioPlayback();
-                }});
+                });
 
-                window.addEventListener('beforeunload', () => {{
-                    try {{ navigator.sendBeacon(endUrl); }} catch (_) {{}}
-                }});
+                window.addEventListener('beforeunload', () => {
+                    try { navigator.sendBeacon(endUrl); } catch (_) {}
+                });
 
-                async function start() {{
-                    try {{
+                async function start() {
+                    try {
                         setStatus('Connecting to room...');
                         await room.connect(wsUrl, token);
                         await enableLocalTracks();
                         await enableAudioPlayback();
 
-                        if (room.remoteParticipants.size > 0) {{
+                        if (room.remoteParticipants.size > 0) {
                             setStatus('Connected');
-                        }} else {{
+                        } else {
                             setStatus('Waiting for other participant...');
-                        }}
-                    }} catch (e) {{
+                        }
+                    } catch (e) {
                         console.error('[CALL] connect failed', e);
                         setStatus('Unable to connect. Returning...');
                         setTimeout(goBack, 1200);
-                    }}
-                }}
+                    }
+                }
 
                 start();
                 setInterval(checkStatus, 5000);
-                """,
+                """.replace("__WS_URL__", ws_url_js)
+                   .replace("__TOKEN__", token_js)
+                   .replace("__ROOM__", room_js)
+                   .replace("__DISPLAY_NAME__", display_name_js)
+                   .replace("__RETURN_URL__", return_url_js)
+                   .replace("__END_URL__", end_url_js)
+                   .replace("__STATUS_URL__", status_url_js)
+                   .replace("__STATUSES__", statuses_js)
+                   .replace("__MODE__", mode_js),
                 **{"type": "module"},
             ),
         ),
