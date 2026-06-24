@@ -232,16 +232,16 @@ def _render_livekit_call_page(
                 let micEnabled = true;
                 let camEnabled = callMode === 'video';
 
-                const room = new Room({
+                const room = new Room({{
                     adaptiveStream: true,
                     dynacast: true,
-                    audioCaptureDefaults: {
+                    audioCaptureDefaults: {{
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
-                    },
-                    audioOutput: { deviceId: 'default' },
-                });
+                    }},
+                    audioOutput: {{ deviceId: 'default' }},
+                }});
 
                 function setStatus(message) {{
                     if (statusEl) statusEl.textContent = message;
