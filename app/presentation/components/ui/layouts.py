@@ -169,7 +169,7 @@ def DashboardLayout(
     if bottom_nav:
         elements.append(bottom_nav)
     
-    # SSE Notification Listener Script
-    elements.append(Script(src="/assets/call_notifications.js?v=20260612-2"))
+    # Notification + WebSocket script — v20260624-1 forces browser cache bust
+    elements.append(Script(src="/assets/call_notifications.js?v=20260624-1"))
     
     return Div(*elements, **kwargs)
