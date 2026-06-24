@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import asyncio
 import json
 from datetime import datetime, timedelta
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from starlette.routing import WebSocketRoute
 
@@ -17,6 +17,46 @@ from app.domain.models.chat import ChatMessage, Notification, NotificationType
 from app.domain.models.call import CallLog
 from app.infrastructure.database.connection import get_db_session
 from app.presentation.routes.calls import _build_join_url_for_user, _extract_initiator_id
+
+
+# ---------------------------------------------------------------------------
+# WebSocket session-cookie parser (fallback when scope session is empty)
+# ---------------------------------------------------------------------------
+
+def _user_id_from_ws_cookie(websocket: WebSocket) -> str | None:
+    """Extract user_id by re-parsing the signed session cookie.
+
+    Starlette's SessionMiddleware *should* populate scope['session'] for
+    WebSocket connections, but in some deployment configurations (reverse
+    proxies, ASGI servers) the session dict can be empty even though the
+    cookie is present.  This helper unsigns the cookie directly as a
+    safety net so the WebSocket never silently drops authenticated users.
+    """
+    try:
+        from itsdangerous import URLSafeTimedSerializer
+        from app.config import get_settings
+        settings = get_settings()
+        serializer = URLSafeTimedSerializer(settings.secret_key, salt="starlette.session")
+        cookies = websocket.cookies
+        cookie_val = cookies.get("siwes_session")
+        if not cookie_val:
+            return None
+        data = serializer.loads(cookie_val)
+        if isinstance(data, dict):
+            uid = data.get("user_id")
+            if uid:
+                # Check expiry
+                exp = data.get("expires_at")
+                if exp:
+                    try:
+                        if datetime.fromisoformat(exp) < datetime.utcnow():
+                            return None
+                    except (ValueError, TypeError):
+                        pass
+                return uid
+    except Exception as exc:
+        print(f"[WS] cookie-parse fallback failed: {exc}")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -32,10 +72,18 @@ async def ws_notifications_handler(websocket: WebSocket):
 
     Auth: reads user_id from the signed Starlette session cookie.
     """
-    # Authenticate via session cookie
+    # Authenticate via session cookie — primary path
     session = getattr(websocket, "session", None)
     user_id = session.get("user_id") if session else None
+
+    # Fallback: manually unsign the cookie if scope session is empty
     if not user_id:
+        user_id = _user_id_from_ws_cookie(websocket)
+        if user_id:
+            print(f"[WS] auth via cookie-parse fallback for user {user_id}")
+
+    if not user_id:
+        print("[WS] /ws/notifications rejected — no session")
         await websocket.close(code=4001)
         return
 
@@ -198,7 +246,12 @@ def register_notification_routes(app):
             recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
             call_logs = db.query(CallLog).filter(
                 (CallLog.student_id == current_user.id) | (CallLog.supervisor_id == current_user.id),
-                CallLog.started_at >= recent_cutoff,
+                # Ringing calls have started_at=NULL (set only when call becomes active).
+                # Include them so incoming-call notifications are never missed.
+                or_(
+                    CallLog.started_at >= recent_cutoff,
+                    CallLog.started_at == None,
+                ),
                 CallLog.status.in_(["ringing", "accepted", "declined", "missed", "cancelled"]),
             ).order_by(desc(CallLog.started_at)).limit(10).all()
 

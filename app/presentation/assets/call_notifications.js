@@ -786,33 +786,6 @@
             if (!target) return;
             if (target.id === 'chat-messages-list') {
                 scrollChatToBottom(true);
-        });
-
-        document.body.addEventListener('new_message_notification', function () {
-            refreshNotificationBell();
-        });
-
-        document.body.addEventListener('log_save_result', function (event) {
-            const detail = event && event.detail ? event.detail : {};
-            const ok = !!detail.ok;
-            const queued = !!detail.queued;
-            const message = detail.message || (ok ? 'Log saved.' : 'Failed to save log.');
-            showToast(message, ok ? (queued ? 'info' : 'success') : 'danger');
-            if (!ok) return;
-            const modalEl = document.getElementById('logModal');
-            if (modalEl && window.bootstrap && window.bootstrap.Modal) {
-                const modal = window.bootstrap.Modal.getOrCreateInstance(modalEl);
-                modal.hide();
-            }
-            if (queued) return;
-            setTimeout(() => window.location.reload(), 700);
-        });
-
-        document.body.addEventListener('htmx:afterSwap', function (event) {
-            const target = event.detail && event.detail.target;
-            if (!target) return;
-            if (target.id === 'chat-messages-list') {
-                scrollChatToBottom(true);
                 return;
             }
             if (target.id === 'student-communication-root' || target.id === 'supervisor-communication-root') {
