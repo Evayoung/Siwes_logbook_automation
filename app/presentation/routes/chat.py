@@ -1,6 +1,8 @@
 from fasthtml.common import *
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, desc
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.pool.impl import exc as pool_exc
 from datetime import datetime
 from urllib.parse import unquote, quote
 from typing import Optional
@@ -14,10 +16,17 @@ from app.domain.models.chat import NotificationType
 from app.infrastructure.database.connection import get_db
 from faststrap.presets import InfiniteScroll
 
+
 def register_chat_routes(app):
     """Register chat-related routes."""
 
-    def _message_bubble_html(text: str, time_text: str, is_me: bool, message_id: str | None = None, created_at: str | None = None) -> FT:
+    def _message_bubble_html(
+        text: str,
+        time_text: str,
+        is_me: bool,
+        message_id: str | None = None,
+        created_at: str | None = None,
+    ) -> FT:
         """Render a chat bubble snippet for HTMX append."""
         if is_me:
             align_cls = "justify-content-end"
@@ -64,32 +73,40 @@ def register_chat_routes(app):
         oldest = rows[-1].created_at.isoformat() if rows else None
         return rows_asc, has_more, oldest
 
+    # ------------------------------------------------------------------
+    # GET /api/chat/history/{other_user_id}
+    # ------------------------------------------------------------------
+
     @app.get("/api/chat/history/{other_user_id}")
     @require_auth()
     def get_chat_history(
         request: Request,
         other_user_id: str,
         db: Session = None,
-        current_user: Optional[User] = None
+        current_user: Optional[User] = None,
     ):
         """Fetch chat history with a specific user."""
         messages = db.query(ChatMessage).filter(
             or_(
                 and_(ChatMessage.sender_id == current_user.id, ChatMessage.receiver_id == other_user_id),
-                and_(ChatMessage.sender_id == other_user_id, ChatMessage.receiver_id == current_user.id)
+                and_(ChatMessage.sender_id == other_user_id, ChatMessage.receiver_id == current_user.id),
             )
         ).order_by(ChatMessage.created_at.asc()).all()
-        
+
         return [
             {
                 "id": m.id,
                 "text": m.message_body,
                 "time": m.created_at.strftime("%I:%M %p"),
                 "is_me": m.sender_id == current_user.id,
-                "created_at": m.created_at.isoformat()
+                "created_at": m.created_at.isoformat(),
             }
             for m in messages
         ]
+
+    # ------------------------------------------------------------------
+    # GET /api/chat/history/{other_user_id}/older  (infinite scroll)
+    # ------------------------------------------------------------------
 
     @app.get("/api/chat/history/{other_user_id}/older")
     @require_auth()
@@ -99,7 +116,7 @@ def register_chat_routes(app):
         before: str,
         limit: int = 20,
         db: Session = None,
-        current_user: Optional[User] = None
+        current_user: Optional[User] = None,
     ):
         """Fetch older messages for infinite scroll prepend."""
         try:
@@ -115,7 +132,6 @@ def register_chat_routes(app):
             limit=max(5, min(limit, 50)),
         )
 
-        top_loader = None
         if has_more and oldest:
             oldest_q = quote(oldest, safe="")
             top_loader = InfiniteScroll(
@@ -127,7 +143,11 @@ def register_chat_routes(app):
                 content=Div("Loading older messages...", cls="small text-muted text-center py-1"),
             )
         else:
-            top_loader = Div("Start of conversation", id="chat-history-sentinel", cls="small text-muted text-center py-1")
+            top_loader = Div(
+                "Start of conversation",
+                id="chat-history-sentinel",
+                cls="small text-muted text-center py-1",
+            )
 
         bubbles = [
             _message_bubble_html(
@@ -141,59 +161,80 @@ def register_chat_routes(app):
         ]
         return (top_loader, *bubbles)
 
+    # ------------------------------------------------------------------
+    # POST /api/chat/send
+    # ------------------------------------------------------------------
+
     @app.route("/api/chat/send", methods=["POST", "OPTIONS"])
     async def send_message_route(request: Request):
         """Send a new chat message."""
-        # Handle CORS/OPTIONS
+        # CORS pre-flight
         if request.method == "OPTIONS":
             return Response(status_code=200)
 
-        # Authentication (Manual since we need to handle OPTIONS)
+        # Auth check
         if not hasattr(request, "session") or "user_id" not in request.session:
             return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            
-        # Get DB Session
-        db = request.state.db if hasattr(request.state, 'db') else None
+
+        # Get DB session from middleware; fall back to a fresh one
+        db = getattr(request.state, "db", None)
         created_local_session = False
         if not db:
             from app.infrastructure.database.connection import SessionLocal
             db = SessionLocal()
             created_local_session = True
-            
-        # Get User
-        current_user = db.query(User).filter(User.id == request.session["user_id"]).first()
+
+        # Fetch current user — retry once on pool/ping transient errors
+        def _fetch_user(session):
+            return session.query(User).filter(User.id == request.session["user_id"]).first()
+
+        try:
+            current_user = _fetch_user(db)
+        except (OperationalError, ProgrammingError, pool_exc.TimeoutError) as exc:
+            print(f"[CHAT] DB error on user fetch, retrying: {exc}")
+            try:
+                db.rollback()
+                db.invalidate()
+                db.close()
+            except Exception:
+                pass
+            from app.infrastructure.database.connection import SessionLocal
+            db = SessionLocal()
+            created_local_session = True
+            try:
+                current_user = _fetch_user(db)
+            except Exception as retry_err:
+                print(f"[CHAT] retry failed: {retry_err}")
+                return JSONResponse({"error": "Database temporarily unavailable"}, status_code=503)
+
         if not current_user:
             if created_local_session:
                 db.close()
             return JSONResponse({"error": "User not found"}, status_code=404)
 
         try:
-            # Parse Body (Support both JSON and Form)
+            # Parse body (JSON or form)
             import json
-            
             content_type = request.headers.get("content-type", "")
-            
             if "application/json" in content_type:
-                # Async read
                 body_bytes = await request.body()
-                data = json.loads(body_bytes.decode('utf-8'))
+                data = json.loads(body_bytes.decode("utf-8"))
                 recipient_id = data.get("recipient_id")
                 content = data.get("content")
             else:
-                # Form data (HTMX default)
                 form = await request.form()
                 recipient_id = form.get("recipient_id")
                 content = form.get("content")
-            
+
             if not recipient_id or not content:
-                print(f"Missing fields. Recipient: {recipient_id}, Content: {content}")
                 return JSONResponse({"error": "Missing recipient_id or content"}, status_code=400)
 
-            # Validate recipient and chat relationship.
+            # Validate recipient
             recipient = db.query(User).filter(User.id == recipient_id).first()
             if not recipient:
                 return JSONResponse({"error": "Recipient not found"}, status_code=404)
 
+            # Enforce chat relationship
             if current_user.role == UserRole.STUDENT:
                 student_profile = db.query(StudentProfile).filter(
                     StudentProfile.user_id == current_user.id
@@ -201,32 +242,33 @@ def register_chat_routes(app):
                 if not student_profile or student_profile.assigned_supervisor_id != recipient_id:
                     return JSONResponse(
                         {"error": "You can only message your assigned supervisor"},
-                        status_code=403
+                        status_code=403,
                     )
             elif current_user.role == UserRole.SUPERVISOR:
-                assigned_student_ids = {
-                    p.user_id for p in db.query(StudentProfile).filter(
+                assigned_ids = {
+                    p.user_id
+                    for p in db.query(StudentProfile).filter(
                         StudentProfile.assigned_supervisor_id == current_user.id
                     ).all()
                 }
-                if recipient_id not in assigned_student_ids:
+                if recipient_id not in assigned_ids:
                     return JSONResponse(
                         {"error": "You can only message assigned students"},
-                        status_code=403
+                        status_code=403,
                     )
-                
-            # Create Message
+
+            # Persist message
             msg = ChatMessage(
                 sender_id=current_user.id,
                 receiver_id=recipient_id,
                 message_body=content,
                 created_at=datetime.utcnow(),
-                is_read=False
+                is_read=False,
             )
             db.add(msg)
             db.commit()
-            
-            # Send SSE Notification
+
+            # Push real-time notification (WebSocket preferred, SSE fallback)
             try:
                 await notification_manager.send_to_user(
                     recipient_id,
@@ -236,12 +278,13 @@ def register_chat_routes(app):
                         "text": msg.message_body,
                         "sender_id": current_user.id,
                         "time": msg.created_at.strftime("%I:%M %p"),
-                        "is_me": False  # Recipient sees it as not 'me'
-                    }
+                        "is_me": False,
+                    },
                 )
-            except Exception as e:
-                print(f"Failed to send SSE: {e}")
+            except Exception as push_err:
+                print(f"[CHAT] real-time push failed (non-fatal): {push_err}")
 
+            # Persist inbox notification
             try:
                 notif_service = NotificationService(db)
                 if recipient.role == UserRole.STUDENT:
@@ -256,9 +299,14 @@ def register_chat_routes(app):
                     action_url=action_url,
                 )
                 db.commit()
-            except Exception:
-                db.rollback()
+            except Exception as notif_err:
+                print(f"[CHAT] inbox notification failed (non-fatal): {notif_err}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
+            # Return bubble HTML for HTMX append, or JSON for fetch clients
             if request.headers.get("HX-Request"):
                 return _message_bubble_html(
                     text=msg.message_body,
@@ -269,20 +317,27 @@ def register_chat_routes(app):
                 )
 
             return JSONResponse({
-                "success": True, 
+                "success": True,
                 "message": {
                     "id": msg.id,
                     "text": msg.message_body,
                     "time": msg.created_at.strftime("%I:%M %p"),
-                    "is_me": True
-                }
+                    "is_me": True,
+                },
             })
-            
-        except Exception as e:
-            print(f"Error sending message: {e}")
+
+        except Exception as exc:
+            print(f"[CHAT] Error sending message: {exc}")
             import traceback
             traceback.print_exc()
-            return JSONResponse({"error": str(e)}, status_code=500)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            return JSONResponse({"error": str(exc)}, status_code=500)
         finally:
             if created_local_session:
-                db.close()
+                try:
+                    db.close()
+                except Exception:
+                    pass

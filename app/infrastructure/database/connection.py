@@ -76,29 +76,43 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.close()
 
 else:
-    # PostgreSQL — direct Supabase connection (db.*.supabase.co:5432)
-    # pool_pre_ping=True means SQLAlchemy will test each connection before use
-    # and automatically reconnect if it has been dropped — no more SSL crashes.
-    engine_kwargs = {
-        "pool_pre_ping": True,        # detect & reconnect stale connections automatically
-        "pool_recycle": 300,           # recycle connections every 5 minutes
-        "pool_reset_on_return": None,
-        "connect_args": {
-            "connect_timeout": 10,     # fail fast on dead connections (not hang)
-            "keepalives": 1,
-            "keepalives_idle": 30,
-            "keepalives_interval": 10,
-            "keepalives_count": 3,
-        },
-        "echo": settings.debug,
-    }
-    if settings.db_disable_pooling:
-        engine_kwargs["poolclass"] = NullPool
+    # Determine if we are connecting through a transaction-mode pooler (e.g. PgBouncer)
+    is_pooler = "pooler.supabase.com" in DATABASE_URL or ":6543" in DATABASE_URL
+
+    if is_pooler:
+        # PgBouncer in transaction mode does not support session parameters/autocommit modifications
+        # like pool_pre_ping, and connection pooling must be handled by the server (NullPool locally).
+        print("[DB] Transaction-mode pooler detected. Disabling pooling & pool_pre_ping to prevent set_session errors.")
+        engine_kwargs = {
+            "poolclass": NullPool,
+            "connect_args": {
+                "connect_timeout": 10,
+            },
+            "echo": settings.debug,
+        }
     else:
-        engine_kwargs["pool_size"] = settings.db_pool_size
-        engine_kwargs["max_overflow"] = settings.db_max_overflow
+        # Direct DB connection supports connection pooling and pre-ping
+        print("[DB] Direct database connection detected. Enabling pooling & pool_pre_ping.")
+        engine_kwargs = {
+            "pool_pre_ping": True,        # detect & reconnect stale connections automatically
+            "pool_recycle": 300,           # recycle connections every 5 minutes
+            "connect_args": {
+                "connect_timeout": 10,     # fail fast on dead connections (not hang)
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 3,
+            },
+            "echo": settings.debug,
+        }
+        if settings.db_disable_pooling:
+            engine_kwargs["poolclass"] = NullPool
+        else:
+            engine_kwargs["pool_size"] = settings.db_pool_size
+            engine_kwargs["max_overflow"] = settings.db_max_overflow
 
     engine = create_engine(DATABASE_URL, **engine_kwargs)
+
 
 
 # Session factory
