@@ -5,7 +5,7 @@ attaching the session to request.state.db and ensuring proper cleanup.
 """
 
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.requests import Request, ClientDisconnect
 from starlette.responses import Response
 from sqlalchemy.exc import SQLAlchemyError, OperationalError, ProgrammingError
 from sqlalchemy.pool.impl import exc as pool_exc
@@ -22,6 +22,10 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
             request.state.db = db
             response = await call_next(request)
             return response
+
+        except ClientDisconnect:
+            print("[DB Middleware] Client disconnected.")
+            return Response("Client Disconnected", status_code=499)
 
         except (OperationalError, pool_exc.TimeoutError) as exc:
             # Stale / dropped connection — try once with a fresh session.

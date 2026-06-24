@@ -1,14 +1,19 @@
-"""HTTP cache-control middleware for protected app pages."""
-
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import Response
+from starlette.requests import ClientDisconnect
 
 
 class NoStoreMiddleware(BaseHTTPMiddleware):
     """Prevent stale protected screens from showing after logout/back."""
 
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except ClientDisconnect:
+            print("[Middleware] Client disconnected (NoStoreMiddleware).")
+            return Response("Client Disconnected", status_code=499)
+
         path = request.url.path
 
         static_prefixes = ("/static/", "/assets/")
@@ -20,3 +25,4 @@ class NoStoreMiddleware(BaseHTTPMiddleware):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
+
