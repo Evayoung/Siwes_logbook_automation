@@ -118,10 +118,11 @@ def ChatMainArea(student: dict, messages: list, oldest_message_at: str | None = 
                         H6(student["name"], cls="mb-0 fw-bold"),
                         Div(
                             Div(
+                                id="status-dot",
                                 cls=f"{'bg-success' if student_status == 'Online' else 'bg-secondary'} rounded-circle me-1",
                                 style="width: 8px; height: 8px;",
                             ),
-                            student_status,
+                            Span(student_status, id="status-text"),
                             cls="small text-muted d-flex align-items-center",
                         ),
                     ),
@@ -306,6 +307,9 @@ def SupervisorCommunicationPage(
         else CallHistoryTable(calls)
     )
 
+    # Build student IDs for presence polling
+    student_ids = ",".join(s["id"] for s in students if s.get("id"))
+
     return Div(
         Div(
             H2("Chat & Call Logs", cls="mb-0"),
@@ -314,5 +318,30 @@ def SupervisorCommunicationPage(
         ),
         tabs,
         content,
+        Script(f"""
+        (function() {{
+            const ids = "{student_ids}";
+            if (!ids) return;
+            async function checkPresence() {{
+                try {{
+                    const res = await fetch('/api/presence?ids=' + ids, {{ credentials: 'same-origin' }});
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const dot = document.getElementById('status-dot');
+                    const txt = document.getElementById('status-text');
+                    if (!dot || !txt) return;
+                    const activeId = "{active_student_id}";
+                    const status = data[activeId] || 'Offline';
+                    txt.textContent = status;
+                    dot.className = (status === 'Online'
+                        ? 'bg-success rounded-circle me-1'
+                        : 'bg-secondary rounded-circle me-1');
+                    dot.style.cssText = 'width:8px;height:8px;';
+                }} catch (_) {{}}
+            }}
+            checkPresence();
+            setInterval(checkPresence, 20000);
+        }})();
+        """),
         cls="communication-page pb-4",
     )

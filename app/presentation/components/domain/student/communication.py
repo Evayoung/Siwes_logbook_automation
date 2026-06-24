@@ -29,6 +29,7 @@ def ChatHeader(supervisor: dict) -> FT:
                         style="width: 48px; height: 48px; font-size: 1.2rem;"
                     ),
                     Div(
+                        id="sup-status-dot",
                         cls=f"position-absolute {'bg-success' if status == 'Online' else 'bg-secondary'} border border-white rounded-circle",
                         style="width: 12px; height: 12px; bottom: 0; right: 0;"
                     ),
@@ -37,7 +38,7 @@ def ChatHeader(supervisor: dict) -> FT:
                 Div(
                     H6(name, cls="mb-0 fw-bold"),
                     Div(dept, cls="text-muted small"),
-                    Div(status, cls=f"{'text-success' if status == 'Online' else 'text-muted'} small fw-semibold"),
+                    Div(Span(status, id="sup-status-text"), cls=f"{'text-success' if status == 'Online' else 'text-muted'} small fw-semibold", id="sup-status-label"),
                     cls="d-flex flex-column"
                 ),
                 cls="d-flex align-items-center"

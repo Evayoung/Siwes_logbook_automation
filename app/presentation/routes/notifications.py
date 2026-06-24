@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import asyncio
 import json
 from datetime import datetime, timedelta
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, or_, and_
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from starlette.routing import WebSocketRoute
 
@@ -351,6 +351,76 @@ def register_notification_routes(app):
             except Exception:
                 pass
             return JSONResponse({"events": []})
+
+    # ------------------------------------------------------------------
+    # Presence (lightweight online/offline check)
+    # ------------------------------------------------------------------
+
+    @app.get("/api/presence")
+    @require_auth()
+    def presence_check(request: Request, db: Session = None, current_user: User = None):
+        """Return online/offline status for requested user IDs.
+
+        Uses two signals so it works across multiple ASGI workers:
+        1. Local NotificationManager (WS/SSE connection on *this* worker)
+        2. Recent DB activity (chat messages or call logs within 10 min)
+        """
+        ids_param = request.query_params.get("ids", "")
+        if not ids_param:
+            return JSONResponse({})
+
+        user_ids = [uid.strip() for uid in ids_param.split(",") if uid.strip()]
+        if not user_ids:
+            return JSONResponse({})
+
+        # Signal 1 — local WS/SSE connections (fast, but per-worker)
+        active_ws = set(notification_manager.get_active_users())
+
+        # Signal 2 — recent DB activity (works across workers)
+        recent_cutoff = datetime.utcnow() - timedelta(minutes=10)
+        recently_active = set()
+
+        try:
+            # Recent chat messages (sent by the user)
+            chat_senders = db.query(ChatMessage.sender_id).filter(
+                ChatMessage.sender_id.in_(user_ids),
+                ChatMessage.created_at >= recent_cutoff,
+            ).distinct().all()
+            recently_active.update(row[0] for row in chat_senders)
+
+            # Recent call activity
+            call_users = db.query(CallLog).filter(
+                or_(
+                    CallLog.student_id.in_(user_ids),
+                    CallLog.supervisor_id.in_(user_ids),
+                ),
+                CallLog.status.in_(["ringing", "accepted", "active"]),
+                or_(
+                    CallLog.started_at >= recent_cutoff,
+                    CallLog.started_at == None,
+                    CallLog.notified_at >= recent_cutoff,
+                ),
+            ).all()
+            for c in call_users:
+                if c.student_id in user_ids:
+                    recently_active.add(c.student_id)
+                if c.supervisor_id in user_ids:
+                    recently_active.add(c.supervisor_id)
+        except Exception as exc:
+            print(f"[PRESENCE] DB check failed (non-fatal): {exc}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+        result = {}
+        for uid in user_ids:
+            if uid in active_ws or uid in recently_active:
+                result[uid] = "Online"
+            else:
+                result[uid] = "Offline"
+
+        return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------

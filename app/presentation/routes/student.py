@@ -274,6 +274,31 @@ def setup_student_routes(app: FastHTML):
                 oldest_message_at=oldest_message_at,
                 has_more_messages=has_more_messages,
             ),
+            Script(f"""
+            (function() {{
+                const supId = "{supervisor_data.get('id', '')}";
+                if (!supId) return;
+                async function checkSupPresence() {{
+                    try {{
+                        const res = await fetch('/api/presence?ids=' + supId, {{ credentials: 'same-origin' }});
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        const dot = document.getElementById('sup-status-dot');
+                        const txt = document.getElementById('sup-status-text');
+                        const lbl = document.getElementById('sup-status-label');
+                        if (!dot || !txt || !lbl) return;
+                        const status = data[supId] || 'Offline';
+                        txt.textContent = status;
+                        dot.className = 'position-absolute ' + (status === 'Online'
+                            ? 'bg-success' : 'bg-secondary') + ' border border-white rounded-circle';
+                        dot.style.cssText = 'width:12px;height:12px;bottom:0;right:0;';
+                        lbl.className = (status === 'Online' ? 'text-success' : 'text-muted') + ' small fw-semibold';
+                    }} catch (_) {{}}
+                }}
+                checkSupPresence();
+                setInterval(checkSupPresence, 20000);
+            }})();
+            """),
             id="student-communication-root",
         )
 
