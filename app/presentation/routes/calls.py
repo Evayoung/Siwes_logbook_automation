@@ -259,7 +259,20 @@ def _render_livekit_call_page(
             ),
             Script(
                 """
-                import { Room, RoomEvent } from 'https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.esm.mjs';
+                (async function() {
+                    let Room, RoomEvent;
+                    try {
+                        const lk = await import('https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.esm.mjs');
+                        Room = lk.Room;
+                        RoomEvent = lk.RoomEvent;
+                        console.log('[CALL] LiveKit module loaded successfully');
+                    } catch (e) {
+                        console.error('[CALL] Failed to load LiveKit module:', e);
+                        console.error('[CALL] Import error name:', e.name, 'message:', e.message);
+                        try { document.getElementById('call-status').textContent = 'Failed to load call - ' + (e.message || e.name || 'CDN error') + '. Returning...'; } catch(_) {}
+                        setTimeout(function() { window.location.href = __RETURN_URL__; }, 2000);
+                        return;
+                    }
 
                 const wsUrl = __WS_URL__;
                 const token = __TOKEN__;
@@ -561,7 +574,8 @@ def _render_livekit_call_page(
 
                 start();
                 setInterval(checkStatus, 5000);
-                """.replace("__WS_URL__", ws_url_js)
+            })();
+            """.replace("__WS_URL__", ws_url_js)
                    .replace("__TOKEN__", token_js)
                    .replace("__ROOM__", room_js)
                    .replace("__DISPLAY_NAME__", display_name_js)
@@ -570,7 +584,6 @@ def _render_livekit_call_page(
                    .replace("__STATUS_URL__", status_url_js)
                    .replace("__STATUSES__", statuses_js)
                    .replace("__MODE__", mode_js),
-                **{"type": "module"},
             ),
         ),
     )
