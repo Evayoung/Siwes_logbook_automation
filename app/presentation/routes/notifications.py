@@ -278,7 +278,9 @@ def register_notification_routes(app):
                         "call_type": call.call_type or "video",
                         "room_url": call.room_url,
                     })
-                elif current_is_initiator and call.status == "accepted":
+                elif call.status == "accepted":
+                    # Notify BOTH participants via poll fallback.
+                    # If WS notification missed (different worker), this catches it.
                     events.append({
                         "event_id": f"call:{call.id}:accepted",
                         "type": "call_accepted",
@@ -289,13 +291,15 @@ def register_notification_routes(app):
                             call.call_type or "video",
                         ),
                     })
-                elif current_is_initiator and call.status in {"declined", "missed", "cancelled"}:
-                    events.append({
-                        "event_id": f"call:{call.id}:{call.status}",
-                        "type": "call_cancelled",
-                        "call_id": call.id,
-                        "reason": call.status,
-                    })
+                elif call.status in {"declined", "missed", "cancelled"}:
+                    # Notify the initiator (who's waiting) that the call was declined/missed/cancelled.
+                    if current_is_initiator:
+                        events.append({
+                            "event_id": f"call:{call.id}:{call.status}",
+                            "type": "call_cancelled",
+                            "call_id": call.id,
+                            "reason": call.status,
+                        })
 
             unread_messages = db.query(ChatMessage).filter(
                 ChatMessage.receiver_id == current_user.id,
