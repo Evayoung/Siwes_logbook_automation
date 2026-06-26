@@ -1260,10 +1260,25 @@ def call_diagnostics(
     r: str = "",
     e: str = "",
     p: int = 0,
+    db: Session = None,
     current_user: Optional[User] = None,
 ):
     """Diagnostic endpoint for call page module script milestones."""
     print(f"[CALL-DIAG] user={current_user.id[:8] if current_user else '?'}... milestone={m} room={r[:40] if r else '-'} err={e[:80] if e else '-'} participants={p}")
+    if db and r:
+        try:
+            call_log = db.query(CallLog).filter(CallLog.room_name == r).first()
+            if call_log:
+                role_label = current_user.role.value if current_user else "unknown"
+                entry = f" | {role_label}:{m}"
+                if e:
+                    entry += f"({e})"
+                if p:
+                    entry += f"[p:{p}]"
+                call_log.notes = (call_log.notes or "") + entry
+                db.commit()
+        except Exception as exc:
+            print(f"[CALL-DIAG ERROR] Failed to save diagnostics to db: {exc}")
     return JSONResponse({}, status_code=204)
 
 

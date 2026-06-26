@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import time
 from datetime import datetime
 from typing import Dict, Optional
 from urllib.parse import quote_plus
@@ -100,7 +101,7 @@ class LiveKitService:
         is_owner: bool = False,
         identity: Optional[str] = None,
     ) -> str:
-        now = int(datetime.utcnow().timestamp())
+        now = int(time.time())
         identity_value = (identity or user_name or "user").strip()
         payload = {
             "iss": self.livekit_api_key,
