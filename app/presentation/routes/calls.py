@@ -40,6 +40,16 @@ def _build_join_url_for_user(role: UserRole, room_name: str, call_type: str) -> 
     return url
 
 
+def _extract_initiator_id(notes: str | None) -> str | None:
+    """Extract initiator user ID from CallLog notes metadata."""
+    if not notes:
+        return None
+    prefix = "initiator:"
+    if notes.startswith(prefix):
+        return notes[len(prefix):]
+    return None
+
+
 def _caller_and_peer(call_log: CallLog) -> tuple[Optional[str], Optional[str]]:
     """Resolve caller and peer user IDs from call log metadata."""
     initiator_id = _extract_initiator_id(call_log.notes)
@@ -1250,43 +1260,32 @@ def register_call_routes(app):
             "success": True,
             "duration_minutes": call_log.duration_minutes
         })
-
-
-@app.get("/api/call-diag")
-@require_auth()
-def call_diagnostics(
-    request: Request,
-    m: str = "",
-    r: str = "",
-    e: str = "",
-    p: int = 0,
-    db: Session = None,
-    current_user: Optional[User] = None,
-):
-    """Diagnostic endpoint for call page module script milestones."""
-    print(f"[CALL-DIAG] user={current_user.id[:8] if current_user else '?'}... milestone={m} room={r[:40] if r else '-'} err={e[:80] if e else '-'} participants={p}")
-    if db and r:
-        try:
-            call_log = db.query(CallLog).filter(CallLog.room_name == r).first()
-            if call_log:
-                role_label = current_user.role.value if current_user else "unknown"
-                entry = f" | {role_label}:{m}"
-                if e:
-                    entry += f"({e})"
-                if p:
-                    entry += f"[p:{p}]"
-                call_log.notes = (call_log.notes or "") + entry
-                db.commit()
-        except Exception as exc:
-            print(f"[CALL-DIAG ERROR] Failed to save diagnostics to db: {exc}")
-    return JSONResponse({}, status_code=204)
-
-
-def _extract_initiator_id(notes: str | None) -> str | None:
-    """Extract initiator user ID from CallLog notes metadata."""
-    if not notes:
-        return None
-    prefix = "initiator:"
-    if notes.startswith(prefix):
-        return notes[len(prefix):]
-    return None
+    
+    @app.get("/api/call-diag")
+    @require_auth()
+    def call_diagnostics(
+        request: Request,
+        m: str = "",
+        r: str = "",
+        e: str = "",
+        p: int = 0,
+        db: Session = None,
+        current_user: Optional[User] = None,
+    ):
+        """Diagnostic endpoint for call page module script milestones."""
+        print(f"[CALL-DIAG] user={current_user.id[:8] if current_user else '?'}... milestone={m} room={r[:40] if r else '-'} err={e[:80] if e else '-'} participants={p}")
+        if db and r:
+            try:
+                call_log = db.query(CallLog).filter(CallLog.room_name == r).first()
+                if call_log:
+                    role_label = current_user.role.value if current_user else "unknown"
+                    entry = f" | {role_label}:{m}"
+                    if e:
+                        entry += f"({e})"
+                    if p:
+                        entry += f"[p:{p}]"
+                    call_log.notes = (call_log.notes or "") + entry
+                    db.commit()
+            except Exception as exc:
+                print(f"[CALL-DIAG ERROR] Failed to save diagnostics to db: {exc}")
+        return JSONResponse({}, status_code=204)
