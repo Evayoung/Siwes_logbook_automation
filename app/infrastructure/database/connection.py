@@ -195,6 +195,28 @@ def _apply_schema_patches() -> None:
                     )
                 )
 
+    # Composite indexes for production query performance
+    composite_indexes = [
+        ("chat_messages", "ix_chat_messages_sender_receiver_created",
+         "CREATE INDEX IF NOT EXISTS ix_chat_messages_sender_receiver_created "
+         "ON chat_messages (sender_id, receiver_id, created_at)"),
+        ("chat_messages", "ix_chat_messages_receiver_unread_created",
+         "CREATE INDEX IF NOT EXISTS ix_chat_messages_receiver_unread_created "
+         "ON chat_messages (receiver_id, is_read, created_at)"),
+        ("notifications", "ix_notifications_user_unread_created",
+         "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread_created "
+         "ON notifications (user_id, is_read, created_at)"),
+        ("call_logs", "ix_call_logs_student_supervisor_status_started",
+         "CREATE INDEX IF NOT EXISTS ix_call_logs_student_supervisor_status_started "
+         "ON call_logs (student_id, supervisor_id, status, started_at)"),
+    ]
+    for tbl, idx_name, ddl in composite_indexes:
+        if tbl in table_names:
+            existing = {idx["name"] for idx in inspector.get_indexes(tbl)}
+            if idx_name not in existing:
+                with engine.begin() as conn:
+                    conn.execute(text(ddl))
+
 
 def drop_db() -> None:
     """Drop all database tables.

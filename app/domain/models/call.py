@@ -4,7 +4,7 @@ This module defines the CallLog model for storing call history
 between students and supervisors.
 """
 
-from sqlalchemy import Column, String, DateTime, Integer, Text, ForeignKey
+from sqlalchemy import Column, String, DateTime, Integer, Text, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -79,9 +79,9 @@ class CallLog(Base, TimestampMixin):
     )
     started_at = Column(
         DateTime,
-        nullable=False,
-        default=datetime.utcnow,
-        comment="When the call was initiated"
+        nullable=True,
+        default=None,
+        comment="When the call was actually connected (accepted/active)"
     )
     ended_at = Column(
         DateTime,
@@ -127,6 +127,10 @@ class CallLog(Base, TimestampMixin):
         foreign_keys=[supervisor_id],
         backref="supervisor_calls"
     )
-    
+
+    __table_args__ = (
+        Index('ix_call_logs_student_supervisor_status_started', 'student_id', 'supervisor_id', 'status', 'started_at'),
+    )
+
     def __repr__(self):
         return f"<CallLog(room={self.room_name}, status={self.status})>"

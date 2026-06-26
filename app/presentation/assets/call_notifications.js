@@ -14,11 +14,12 @@
     let notificationMenuOpen = false;
     let olderLoadSnapshot = null;
     const recentEventKeys = new Map();
-    // Poll is now the last-resort fallback (30 s). WebSocket is primary.
-    const pollIntervalMs = 30000;
+    // Poll is the reliability layer (8 s). Always runs even when WS is connected
+    // to catch cross-replica events on FastAPI Cloud multi-worker deployments.
+    const pollIntervalMs = 8000;
     let pollTimer = null;
     let pollInFlight = false;
-    let wsConnected = false;   // true while WS is open — suppresses polling
+    let wsConnected = false;   // true while WS is open
     const seenPollEvents = new Set(
         JSON.parse(localStorage.getItem('siwes_seen_poll_events') || '[]')
     );
@@ -229,8 +230,9 @@
     }
 
     async function pollNotifications() {
-        // Skip if WebSocket is connected — WS pushes events in real-time.
-        if (!navigator.onLine || pollInFlight || wsConnected) return;
+        // Always poll — WS is instant fast-path on same replica,
+        // DB polling is the reliability layer that catches cross-replica events.
+        if (!navigator.onLine || pollInFlight) return;
         pollInFlight = true;
         try {
             const response = await fetch('/notifications/poll', {
@@ -291,8 +293,8 @@
             wsConnected = true;
             _wsReconnectDelay = 1000; // reset back-off
             if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
-            // WebSocket is live — stop polling to save DB connections
-            stopNotificationPolling();
+            // Keep polling running as reliability layer for cross-replica events.
+            // Polling interval is lightweight (8 s, simple /notifications/poll query).
         };
 
         _ws.onmessage = function (event) {

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Boolean, Enum, Index
 from sqlalchemy.orm import relationship
 
 from .base import Base, TimestampMixin
@@ -99,6 +99,11 @@ class ChatMessage(Base, TimestampMixin):
         "User",
         foreign_keys=[receiver_id],
         backref="received_messages"
+    )
+
+    __table_args__ = (
+        Index('ix_chat_messages_sender_receiver_created', 'sender_id', 'receiver_id', 'created_at'),
+        Index('ix_chat_messages_receiver_unread_created', 'receiver_id', 'is_read', 'created_at'),
     )
 
 
@@ -218,3 +223,7 @@ class Notification(Base, TimestampMixin):
     # Relationships
     user = relationship("User", backref="notifications")
     related_log = relationship("DailyLog", backref="notifications")
+
+    __table_args__ = (
+        Index('ix_notifications_user_unread_created', 'user_id', 'is_read', 'created_at'),
+    )

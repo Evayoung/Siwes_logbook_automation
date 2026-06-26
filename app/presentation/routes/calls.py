@@ -213,6 +213,7 @@ def _render_livekit_call_page(
                     cls="call-controls",
                 ),
                 cls="call-shell",
+                data_call_state="connecting",
             ),
             Script(
                 """
@@ -281,6 +282,7 @@ def _render_livekit_call_page(
                 let redirecting = false;
                 let micEnabled = true;
                 let camEnabled = callMode === 'video';
+                let intentionalEnd = false;
 
                 const room = new Room({
                     adaptiveStream: true,
@@ -295,6 +297,12 @@ def _render_livekit_call_page(
 
                 function setStatus(message) {
                     if (statusEl) statusEl.textContent = message;
+                }
+
+                function updateCallState(state, message) {
+                    if (statusEl && message) statusEl.textContent = message;
+                    const shell = document.querySelector('.call-shell');
+                    if (shell) shell.dataset.callState = state;
                 }
 
                 function showAudioUnlock(message) {
@@ -316,6 +324,7 @@ def _render_livekit_call_page(
                 async function endAndReturn() {
                     if (window.__siwesCallLeaving) return;
                     window.__siwesCallLeaving = true;
+                    intentionalEnd = true;
                     try {
                         await fetch(endUrl, {
                             method: 'POST',
@@ -436,13 +445,13 @@ def _render_livekit_call_page(
                 });
 
                 room.on(RoomEvent.ParticipantConnected, () => {
-                    setStatus('Connected');
+                    updateCallState('connected', 'Connected');
                 });
 
                 room.on(RoomEvent.ParticipantDisconnected, () => {
                     if (room.remoteParticipants.size === 0) {
                         clearRemoteMedia();
-                        setStatus('Other participant left');
+                        updateCallState('ending', 'Other participant left');
                         setTimeout(endAndReturn, 1200);
                     }
                 });
@@ -450,7 +459,7 @@ def _render_livekit_call_page(
                 room.on(RoomEvent.Disconnected, (reason) => {
                     console.log('[CALL] disconnected, reason:', reason);
                     if (!redirecting) {
-                        setStatus('Disconnected from call.');
+                        updateCallState('disconnected', 'Disconnected from call.');
                         setTimeout(goBack, 2000);
                     }
                 });
@@ -497,6 +506,7 @@ def _render_livekit_call_page(
                 });
 
                 window.addEventListener('beforeunload', () => {
+                    if (!intentionalEnd) return;
                     try {
                         var payload = new Blob(['{}'], { type: 'application/json' });
                         navigator.sendBeacon(endUrl, payload);
@@ -506,26 +516,26 @@ def _render_livekit_call_page(
                 async function start() {
                     console.log('[CALL] start() called, wsUrl:', wsUrl, 'room:', roomName, 'mode:', callMode);
                     try {
-                        setStatus('Connecting to room...');
+                        updateCallState('connecting', 'Connecting to room...');
                         console.log('[CALL] attempting room.connect...');
                         await room.connect(wsUrl, token);
                         console.log('[CALL] room.connect() succeeded');
-                        setStatus('Room connected. Enabling microphone...');
+                        updateCallState('connecting', 'Room connected. Enabling microphone...');
                         await enableLocalTracks();
                         console.log('[CALL] local tracks enabled');
                         await enableAudioPlayback();
                         console.log('[CALL] audio playback enabled');
 
                         if (room.remoteParticipants.size > 0) {
-                            setStatus('Connected');
+                            updateCallState('connected', 'Connected');
                         } else {
-                            setStatus('Waiting for other participant...');
+                            updateCallState('waiting', 'Waiting for other participant...');
                         }
                     } catch (e) {
                         console.error('[CALL] connect failed', e);
                         console.error('[CALL] error name:', e.name, 'message:', e.message);
                         const errorMsg = e.message || e.name || String(e);
-                        setStatus('Connection failed: ' + errorMsg + '. Returning in 3s...');
+                        updateCallState('failed', 'Connection failed: ' + errorMsg + '. Returning in 3s...');
                         try { room.disconnect(); } catch (_) {}
                         setTimeout(goBack, 3000);
                     }
@@ -847,6 +857,7 @@ def register_call_routes(app):
         
         # Update call status
         call_log.status = "accepted"
+        call_log.started_at = datetime.utcnow()
         db.commit()
         
         # Determine redirect URL
@@ -854,15 +865,19 @@ def register_call_routes(app):
             current_user.role, call_log.room_name, call_log.call_type or "video"
         )
         
-        # Notify caller that call was accepted
+        # Notify caller that call was accepted — use caller's role for their redirect URL
         caller_id = call_log.supervisor_id if current_user.role == UserRole.STUDENT else call_log.student_id
+        caller_role = UserRole.SUPERVISOR if caller_id == call_log.supervisor_id else UserRole.STUDENT
+        caller_redirect_url = _build_join_url_for_user(
+            caller_role, call_log.room_name, call_log.call_type or "video"
+        )
         
         await notification_manager.send_to_user(
             caller_id,
             "call_accepted",
             {
                 "call_id": call_id,
-                "redirect_url": redirect_url
+                "redirect_url": caller_redirect_url
             }
         )
 
