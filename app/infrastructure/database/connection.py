@@ -85,14 +85,18 @@ if DATABASE_URL.startswith("sqlite"):
 
 else:
     # Determine if we are connecting through a transaction-mode pooler (e.g. PgBouncer)
-    # Neon (neon.tech) connections are direct — they support pool_pre_ping and pooling.
-    is_pooler = "pooler.supabase.com" in DATABASE_URL or (":6543" in DATABASE_URL and "neon.tech" not in DATABASE_URL)
+    # Neon (neon.tech) is serverless PostgreSQL — treat as NullPool to avoid idle SSL drops.
+    is_pooler = (
+        "pooler.supabase.com" in DATABASE_URL
+        or "neon.tech" in DATABASE_URL
+        or (":6543" in DATABASE_URL and "neon.tech" not in DATABASE_URL)
+    )
 
     if is_pooler:
         # PgBouncer in transaction mode does not support session parameters/autocommit modifications
         # like pool_pre_ping, and connection pooling must be handled by the server (NullPool locally).
         # TCP keepalives are still needed to prevent Supabase from dropping idle SSL connections.
-        print("[DB] Transaction-mode pooler detected. Using NullPool with TCP keepalives.")
+        print("[DB] Transaction-mode pooler or Neon detected. Using NullPool with TCP keepalives.")
         engine_kwargs = {
             "poolclass": NullPool,
             "connect_args": {
