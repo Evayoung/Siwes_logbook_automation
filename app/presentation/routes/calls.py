@@ -284,6 +284,8 @@ def _render_livekit_call_page(
                 let camEnabled = callMode === 'video';
                 let intentionalEnd = false;
 
+                console.log('[CALL] Module loaded, room:', roomName, 'mode:', callMode);
+
                 const room = new Room({
                     adaptiveStream: true,
                     dynacast: true,
@@ -517,9 +519,17 @@ def _render_livekit_call_page(
                     console.log('[CALL] start() called, wsUrl:', wsUrl, 'room:', roomName, 'mode:', callMode);
                     try {
                         updateCallState('connecting', 'Connecting to room...');
-                        console.log('[CALL] attempting room.connect...');
-                        await room.connect(wsUrl, token);
+
+                        // Connection timeout: 15 seconds
+                        const CONNECT_TIMEOUT_MS = 15000;
+                        const connectTimeout = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Connection timed out after ' + (CONNECT_TIMEOUT_MS / 1000) + 's')), CONNECT_TIMEOUT_MS)
+                        );
+
+                        console.log('[CALL] attempting room.connect with ' + (CONNECT_TIMEOUT_MS / 1000) + 's timeout...');
+                        await Promise.race([room.connect(wsUrl, token), connectTimeout]);
                         console.log('[CALL] room.connect() succeeded');
+                        console.log('[CALL] remote participants count:', room.remoteParticipants.size);
                         updateCallState('connecting', 'Room connected. Enabling microphone...');
                         await enableLocalTracks();
                         console.log('[CALL] local tracks enabled');
@@ -535,7 +545,15 @@ def _render_livekit_call_page(
                         console.error('[CALL] connect failed', e);
                         console.error('[CALL] error name:', e.name, 'message:', e.message);
                         const errorMsg = e.message || e.name || String(e);
-                        updateCallState('failed', 'Connection failed: ' + errorMsg + '. Returning in 3s...');
+                        // Check for common LiveKit issues
+                        if (errorMsg.includes('timed out')) {
+                            updateCallState('failed', 'Connection timed out. LiveKit server unreachable? Returning...');
+                        } else if (errorMsg.includes('token') || errorMsg.includes('claims') || errorMsg.includes('signature')) {
+                            updateCallState('failed', 'Authentication failed. Check LiveKit API key/secret. Returning...');
+                        } else {
+                            updateCallState('failed', 'Connection failed: ' + errorMsg + '. Returning in 3s...');
+                        }
+                        console.log('[CALL] will return to dashboard in 3s');
                         try { room.disconnect(); } catch (_) {}
                         setTimeout(goBack, 3000);
                     }
@@ -1052,7 +1070,8 @@ def register_call_routes(app):
         return_url = f"/student/communication?tab=calls&peer_id={call_log.supervisor_id}"
         end_url = f"/api/calls/{call_log.id}/end"
         status_url = f"/api/calls/{call_log.id}/status"
-        print(f"[CALL-PAGE] student={current_user.id} room={room_name} ws_url={daily_service.livekit_url!r} video={video_enabled}")
+        print(f"[CALL-PAGE] student={current_user.id} room={room_name} ws_url={daily_service.livekit_url!r} "
+              f"api_key={daily_service.livekit_api_key[:12]}... video={video_enabled}")
         return _render_livekit_call_page(
             page_title=("Video Call - SIWES Logbook" if video_enabled else "Voice Call - SIWES Logbook"),
             livekit_ws_url=daily_service.livekit_url,
@@ -1130,7 +1149,8 @@ def register_call_routes(app):
         return_url = f"/supervisor/communication?tab=calls&student_id={call_log.student_id}&peer_id={call_log.student_id}"
         end_url = f"/api/calls/{call_log.id}/end"
         status_url = f"/api/calls/{call_log.id}/status"
-        print(f"[CALL-PAGE] supervisor={current_user.id} room={room_name} ws_url={daily_service.livekit_url!r} video={video_enabled}")
+        print(f"[CALL-PAGE] supervisor={current_user.id} room={room_name} ws_url={daily_service.livekit_url!r} "
+              f"api_key={daily_service.livekit_api_key[:12]}... video={video_enabled}")
         return _render_livekit_call_page(
             page_title=("Video Call - SIWES Logbook" if video_enabled else "Voice Call - SIWES Logbook"),
             livekit_ws_url=daily_service.livekit_url,
