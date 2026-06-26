@@ -22,7 +22,7 @@ sys.path.append(str(project_root))
 
 from app.domain.models.placement import Geofence, IndustrialPlacement
 from app.domain.models.user import StudentProfile, SupervisorProfile, User, UserRole
-from app.infrastructure.database.connection import get_db_session
+from app.infrastructure.database.connection import get_db_session, init_db
 from app.infrastructure.security.password import hash_password
 
 

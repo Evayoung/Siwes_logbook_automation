@@ -49,6 +49,10 @@ class Settings(BaseSettings):
         default=None,
         description="Supabase PostgreSQL connection URL"
     )
+    neon_url: Optional[str] = Field(
+        default=None,
+        description="Neon PostgreSQL serverless connection URL"
+    )
     
     # Security
     secret_key: str = Field(
@@ -187,9 +191,13 @@ class Settings(BaseSettings):
     def db_url(self) -> str:
         """Get appropriate database URL based on environment.
         
+        Priority: NEON_URL > SUPABASE_URL > DATABASE_URL > DATABASE_URL_DEV
+        
         Returns:
             PostgreSQL URL for production, SQLite for development.
         """
+        if self.environment == "production" and self.neon_url:
+            return self._normalize_database_url(self.neon_url)
         if self.environment == "production" and self.supabase_url:
             return self._normalize_database_url(self.supabase_url)
         if self.environment == "production":
@@ -199,10 +207,10 @@ class Settings(BaseSettings):
     @staticmethod
     def _normalize_database_url(url: str) -> str:
         """Normalize external Postgres URLs for SQLAlchemy.
-
-        The 5432→6543 port conversion ONLY applies to pooler URLs
-        (aws-*.pooler.supabase.com).  Direct connection URLs
-        (db.*.supabase.co) must keep port 5432.
+    
+        The 5432->6543 port conversion ONLY applies to Supabase pooler URLs
+        (aws-*.pooler.supabase.com).  Neon and direct connection URLs
+        must keep port 5432.
         """
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
@@ -210,7 +218,12 @@ class Settings(BaseSettings):
         # Direct db.*.supabase.co connections must stay on 5432.
         if ".pooler.supabase.com:5432" in url:
             url = url.replace(".pooler.supabase.com:5432", ".pooler.supabase.com:6543")
+        # Add sslmode=require for Supabase URLs that don't have it
         if "supabase" in url.lower() and "sslmode=" not in url.lower():
+            separator = "&" if "?" in url else "?"
+            return f"{url}{separator}sslmode=require"
+        # Add sslmode=require for Neon URLs that don't have it
+        if "neon.tech" in url.lower() and "sslmode=" not in url.lower():
             separator = "&" if "?" in url else "?"
             return f"{url}{separator}sslmode=require"
         return url

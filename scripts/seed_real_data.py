@@ -20,7 +20,7 @@ current_dir = Path(__file__).resolve().parent
 project_root = current_dir.parent
 sys.path.append(str(project_root))
 
-from app.infrastructure.database.connection import get_db_session
+from app.infrastructure.database.connection import get_db_session, init_db
 from app.domain.models.user import User, UserRole, StudentProfile, SupervisorProfile
 from app.domain.models.placement import IndustrialPlacement, Geofence
 from app.infrastructure.security.password import hash_password as get_password_hash
@@ -46,6 +46,10 @@ def normalized_staff_id(email: str) -> str:
 
 
 def seed_data():
+    # Ensure all tables exist (Neon is fresh)
+    print("Creating tables if they don't exist...")
+    init_db()
+
     db = get_db_session()
     try:
         print("Seeding realistic data...")

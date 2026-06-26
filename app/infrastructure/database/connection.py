@@ -85,7 +85,8 @@ if DATABASE_URL.startswith("sqlite"):
 
 else:
     # Determine if we are connecting through a transaction-mode pooler (e.g. PgBouncer)
-    is_pooler = "pooler.supabase.com" in DATABASE_URL or ":6543" in DATABASE_URL
+    # Neon (neon.tech) connections are direct — they support pool_pre_ping and pooling.
+    is_pooler = "pooler.supabase.com" in DATABASE_URL or (":6543" in DATABASE_URL and "neon.tech" not in DATABASE_URL)
 
     if is_pooler:
         # PgBouncer in transaction mode does not support session parameters/autocommit modifications
