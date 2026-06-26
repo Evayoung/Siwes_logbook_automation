@@ -24,12 +24,12 @@ from app.domain.models import *
 T = TypeVar('T')
 
 
-def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
-    """Execute a database operation with retry on transient SSL errors.
+def execute_with_retry(fn: Callable[[], T], max_retries: int = 3) -> T:
+    """Execute a database operation with retry on transient SSL/connection errors.
 
     Args:
         fn: Function to execute that may raise OperationalError or TimeoutError
-        max_retries: Maximum number of retry attempts (default 2)
+        max_retries: Maximum number of retry attempts (default 3)
 
     Returns:
         Result of the function call
@@ -43,11 +43,19 @@ def execute_with_retry(fn: Callable[[], T], max_retries: int = 2) -> T:
     for attempt in range(max_retries + 1):
         try:
             return fn()
-        except (OperationalError, pool_exc.TimeoutError, ProgrammingError) as e:
+        except (OperationalError, pool_exc.TimeoutError) as e:
             last_error = e
+            err_str = str(e).lower()
+            is_ssl_error = "ssl" in err_str and "closed" in err_str
             if attempt < max_retries:
-                time.sleep(0.1 * (attempt + 1))
+                delay = 0.5 * (2 ** attempt)
+                if is_ssl_error or attempt > 0:
+                    delay *= 2  # longer backoff for SSL / repeated failures
+                time.sleep(delay)
                 continue
+            raise
+        except ProgrammingError as e:
+            # ProgrammingErrors are usually schema issues, not transient
             raise
     raise last_error  # type: ignore[misc]
 
@@ -82,11 +90,16 @@ else:
     if is_pooler:
         # PgBouncer in transaction mode does not support session parameters/autocommit modifications
         # like pool_pre_ping, and connection pooling must be handled by the server (NullPool locally).
-        print("[DB] Transaction-mode pooler detected. Disabling pooling & pool_pre_ping to prevent set_session errors.")
+        # TCP keepalives are still needed to prevent Supabase from dropping idle SSL connections.
+        print("[DB] Transaction-mode pooler detected. Using NullPool with TCP keepalives.")
         engine_kwargs = {
             "poolclass": NullPool,
             "connect_args": {
                 "connect_timeout": 10,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5,
             },
             "echo": settings.debug,
         }

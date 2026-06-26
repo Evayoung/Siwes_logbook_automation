@@ -4,6 +4,7 @@ This module provides middleware to manage database sessions for each request,
 attaching the session to request.state.db and ensuring proper cleanup.
 """
 
+import asyncio
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request, ClientDisconnect
 from starlette.responses import Response
@@ -28,7 +29,7 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
             return Response("Client Disconnected", status_code=499)
 
         except (OperationalError, pool_exc.TimeoutError) as exc:
-            # Stale / dropped connection — try once with a fresh session.
+            # Stale / dropped connection — wait briefly, then retry once with a fresh session.
             print(f"[DB] stale connection, retrying: {exc}")
             if db is not None:
                 try:
@@ -36,6 +37,9 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
                     db.close()
                 except Exception:
                     pass
+
+            # Brief backoff: give Supabase pooler time to recycle stale connections
+            await asyncio.sleep(0.5)
 
             try:
                 db = SessionLocal()
@@ -59,6 +63,8 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
                     db.close()
                 except Exception:
                     pass
+
+            await asyncio.sleep(0.3)
 
             try:
                 db = SessionLocal()
