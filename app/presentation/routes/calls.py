@@ -266,9 +266,11 @@ def _render_livekit_call_page(
                         Room = lk.Room;
                         RoomEvent = lk.RoomEvent;
                         console.log('[CALL] LiveKit module loaded successfully');
+                        new Image().src = '/api/call-diag?m=import_ok&r=' + encodeURIComponent(__ROOM__);
                     } catch (e) {
                         console.error('[CALL] Failed to load LiveKit module:', e);
                         console.error('[CALL] Import error name:', e.name, 'message:', e.message);
+                        new Image().src = '/api/call-diag?m=import_fail&e=' + encodeURIComponent(e.name + ': ' + e.message);
                         try { document.getElementById('call-status').textContent = 'Failed to load call - ' + (e.message || e.name || 'CDN error') + '. Returning...'; } catch(_) {}
                         setTimeout(function() { window.location.href = __RETURN_URL__; }, 2000);
                         return;
@@ -530,6 +532,7 @@ def _render_livekit_call_page(
 
                 async function start() {
                     console.log('[CALL] start() called, wsUrl:', wsUrl, 'room:', roomName, 'mode:', callMode);
+                    new Image().src = '/api/call-diag?m=start_called&r=' + encodeURIComponent(roomName);
                     try {
                         updateCallState('connecting', 'Connecting to room...');
 
@@ -540,8 +543,10 @@ def _render_livekit_call_page(
                         );
 
                         console.log('[CALL] attempting room.connect with ' + (CONNECT_TIMEOUT_MS / 1000) + 's timeout...');
+                        new Image().src = '/api/call-diag?m=connecting&r=' + encodeURIComponent(roomName);
                         await Promise.race([room.connect(wsUrl, token), connectTimeout]);
                         console.log('[CALL] room.connect() succeeded');
+                        new Image().src = '/api/call-diag?m=connected&r=' + encodeURIComponent(roomName) + '&p=' + room.remoteParticipants.size;
                         console.log('[CALL] remote participants count:', room.remoteParticipants.size);
                         updateCallState('connecting', 'Room connected. Enabling microphone...');
                         await enableLocalTracks();
@@ -556,6 +561,7 @@ def _render_livekit_call_page(
                         }
                     } catch (e) {
                         console.error('[CALL] connect failed', e);
+                        new Image().src = '/api/call-diag?m=connect_fail&r=' + encodeURIComponent(roomName) + '&e=' + encodeURIComponent(e.name + ': ' + e.message);
                         console.error('[CALL] error name:', e.name, 'message:', e.message);
                         const errorMsg = e.message || e.name || String(e);
                         // Check for common LiveKit issues
@@ -1244,6 +1250,21 @@ def register_call_routes(app):
             "success": True,
             "duration_minutes": call_log.duration_minutes
         })
+
+
+@app.get("/api/call-diag")
+@require_auth()
+def call_diagnostics(
+    request: Request,
+    m: str = "",
+    r: str = "",
+    e: str = "",
+    p: int = 0,
+    current_user: Optional[User] = None,
+):
+    """Diagnostic endpoint for call page module script milestones."""
+    print(f"[CALL-DIAG] user={current_user.id[:8] if current_user else '?'}... milestone={m} room={r[:40] if r else '-'} err={e[:80] if e else '-'} participants={p}")
+    return JSONResponse({}, status_code=204)
 
 
 def _extract_initiator_id(notes: str | None) -> str | None:
