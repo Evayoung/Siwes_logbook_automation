@@ -125,6 +125,9 @@ def register_notification_routes(app):
     # Mount WebSocket route on the Starlette router
     app.router.routes.insert(0, WebSocketRoute("/ws/notifications", ws_notifications_handler))
 
+    # Start database-backed notification sync loop across replicas
+    notification_manager.start_broadcast_listener()
+
     # ------------------------------------------------------------------
     # SSE stream (kept as fallback for clients that can't use WS)
     # ------------------------------------------------------------------

@@ -29,7 +29,7 @@ from .base import Base, TimestampMixin, SoftDeleteMixin
 from .user import User, UserRole, StudentProfile, SupervisorProfile
 from .placement import IndustrialPlacement, Geofence
 from .log import DailyLog, LogStatus, LocationStatus
-from .chat import ChatMessage, Notification, NotificationType
+from .chat import ChatMessage, Notification, NotificationType, NotificationBroadcast
 from .call import CallLog
 
 __all__ = [
@@ -53,5 +53,6 @@ __all__ = [
     "ChatMessage",
     "Notification",
     "NotificationType",
+    "NotificationBroadcast",
     "CallLog",
 ]

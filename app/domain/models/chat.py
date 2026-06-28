@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Boolean, Enum, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Enum, Index
 from sqlalchemy.orm import relationship
 
 from .base import Base, TimestampMixin
@@ -227,3 +227,40 @@ class Notification(Base, TimestampMixin):
     __table_args__ = (
         Index('ix_notifications_user_unread_created', 'user_id', 'is_read', 'created_at'),
     )
+
+
+class NotificationBroadcast(Base):
+    """Temporary database-backed queue to synchronize events across multiple replicas."""
+    
+    __tablename__ = "notification_broadcasts"
+    
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+        comment="Auto-incrementing broadcast ID"
+    )
+    user_id = Column(
+        String(36),
+        nullable=False,
+        index=True,
+        comment="Recipient user ID"
+    )
+    event_type = Column(
+        String(50),
+        nullable=False,
+        comment="Type of notification event"
+    )
+    data = Column(
+        Text,
+        nullable=False,
+        comment="JSON-serialized event payload"
+    )
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+        index=True,
+        comment="Timestamp when broadcast was created"
+    )
+

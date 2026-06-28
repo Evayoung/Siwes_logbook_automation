@@ -271,16 +271,19 @@ def _render_livekit_call_page(
                 """
                 (async function() {
                     let Room, RoomEvent;
+                    function diag(params) {
+                        try { fetch('/api/call-diag?' + params, { credentials: 'same-origin', keepalive: true }).catch(function(){}); } catch(_) {}
+                    }
                     try {
                         const lk = await import('https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.esm.mjs');
                         Room = lk.Room;
                         RoomEvent = lk.RoomEvent;
                         console.log('[CALL] LiveKit module loaded successfully');
-                        new Image().src = '/api/call-diag?m=import_ok&r=' + encodeURIComponent(__ROOM__);
+                        diag('m=import_ok&r=' + encodeURIComponent(__ROOM__));
                     } catch (e) {
                         console.error('[CALL] Failed to load LiveKit module:', e);
                         console.error('[CALL] Import error name:', e.name, 'message:', e.message);
-                        new Image().src = '/api/call-diag?m=import_fail&e=' + encodeURIComponent(e.name + ': ' + e.message);
+                        diag('m=import_fail&e=' + encodeURIComponent(e.name + ': ' + e.message));
                         try { document.getElementById('call-status').textContent = 'Failed to load call - ' + (e.message || e.name || 'CDN error') + '. Returning...'; } catch(_) {}
                         setTimeout(function() { window.location.href = __RETURN_URL__; }, 2000);
                         return;
@@ -542,7 +545,7 @@ def _render_livekit_call_page(
 
                 async function start() {
                     console.log('[CALL] start() called, wsUrl:', wsUrl, 'room:', roomName, 'mode:', callMode);
-                    new Image().src = '/api/call-diag?m=start_called&r=' + encodeURIComponent(roomName);
+                    diag('m=start_called&r=' + encodeURIComponent(roomName));
                     try {
                         updateCallState('connecting', 'Connecting to room...');
 
@@ -553,10 +556,10 @@ def _render_livekit_call_page(
                         );
 
                         console.log('[CALL] attempting room.connect with ' + (CONNECT_TIMEOUT_MS / 1000) + 's timeout...');
-                        new Image().src = '/api/call-diag?m=connecting&r=' + encodeURIComponent(roomName);
+                        diag('m=connecting&r=' + encodeURIComponent(roomName));
                         await Promise.race([room.connect(wsUrl, token), connectTimeout]);
                         console.log('[CALL] room.connect() succeeded');
-                        new Image().src = '/api/call-diag?m=connected&r=' + encodeURIComponent(roomName) + '&p=' + room.remoteParticipants.size;
+                        diag('m=connected&r=' + encodeURIComponent(roomName) + '&p=' + room.remoteParticipants.size);
                         console.log('[CALL] remote participants count:', room.remoteParticipants.size);
                         updateCallState('connecting', 'Room connected. Enabling microphone...');
                         await enableLocalTracks();
@@ -571,7 +574,7 @@ def _render_livekit_call_page(
                         }
                     } catch (e) {
                         console.error('[CALL] connect failed', e);
-                        new Image().src = '/api/call-diag?m=connect_fail&r=' + encodeURIComponent(roomName) + '&e=' + encodeURIComponent(e.name + ': ' + e.message);
+                        diag('m=connect_fail&r=' + encodeURIComponent(roomName) + '&e=' + encodeURIComponent(e.name + ': ' + e.message));
                         console.error('[CALL] error name:', e.name, 'message:', e.message);
                         const errorMsg = e.message || e.name || String(e);
                         // Check for common LiveKit issues

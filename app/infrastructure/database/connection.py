@@ -174,6 +174,30 @@ def _apply_schema_patches() -> None:
     table_names = set(inspector.get_table_names())
     patches: list[str] = []
 
+    if "notification_broadcasts" not in table_names:
+        if engine.name == "sqlite":
+            patches.append(
+                "CREATE TABLE notification_broadcasts ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "user_id VARCHAR(36) NOT NULL,"
+                "event_type VARCHAR(50) NOT NULL,"
+                "data TEXT NOT NULL,"
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            )
+        else:
+            patches.append(
+                "CREATE TABLE notification_broadcasts ("
+                "id SERIAL PRIMARY KEY,"
+                "user_id VARCHAR(36) NOT NULL,"
+                "event_type VARCHAR(50) NOT NULL,"
+                "data TEXT NOT NULL,"
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            )
+        patches.append("CREATE INDEX ix_notification_broadcasts_user_id ON notification_broadcasts (user_id)")
+        patches.append("CREATE INDEX ix_notification_broadcasts_created_at ON notification_broadcasts (created_at)")
+
     if "call_logs" in table_names:
         call_log_columns = {c["name"] for c in inspector.get_columns("call_logs")}
         if "notified_at" not in call_log_columns:
